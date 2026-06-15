@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pragnosia vs. today's LLMs — an honest comparison</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#070912;--bg2:#0c1020;--ink:#e8ecf8;--mut:#9aa6c8;--dim:#6b76a0;
+  --c1:#7c5cff;--c2:#23d5ab;--c3:#ff7ac2;--c4:#ffd166;--line:rgba(255,255,255,.08);--glass:rgba(255,255,255,.035)}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:radial-gradient(1200px 800px at 30% -10%,#161a36 0,var(--bg) 55%);color:var(--ink);font-family:Inter,system-ui,sans-serif;line-height:1.65}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+h1,h2,h3{font-family:Fraunces,serif;line-height:1.12;letter-spacing:-.02em}
+a{color:var(--c2);text-decoration:none}
+.mono{font-family:'JetBrains Mono',monospace}
+nav{position:fixed;top:0;left:0;right:0;z-index:50;backdrop-filter:blur(14px);background:rgba(7,9,18,.6);border-bottom:1px solid var(--line)}
+nav .wrap{display:flex;align-items:center;justify-content:space-between;height:62px}
+.brand{display:flex;align-items:center;gap:11px;font-weight:700}
+.brand .dot{width:26px;height:26px;border-radius:50%;background:conic-gradient(from 0deg,var(--c1),var(--c2),var(--c3),var(--c4),var(--c1));animation:spin 6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.back{color:var(--mut)!important;font-size:14px;font-weight:500}
+header{padding:130px 0 50px}
+.kicker{font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--c2);font-weight:600}
+header h1{font-size:clamp(38px,7vw,72px);font-weight:900;margin:16px 0}
+header h1 .g{background:linear-gradient(120deg,var(--c1),var(--c3));-webkit-background-clip:text;background-clip:text;color:transparent}
+.lead{font-size:clamp(18px,2.3vw,22px);color:var(--mut);max-width:760px}
+section{padding:50px 0}
+.tag{font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:var(--c3);font-weight:600;margin-bottom:12px}
+h2{font-size:clamp(26px,4vw,40px);font-weight:600;margin-bottom:24px}
+
+/* the big difference cards */
+.vs{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:20px 0 10px}
+.vcard{border-radius:20px;padding:30px;border:1px solid var(--line)}
+.vcard.llm{background:linear-gradient(180deg,rgba(255,255,255,.03),transparent)}
+.vcard.prg{background:linear-gradient(180deg,rgba(124,92,255,.1),transparent);border-color:rgba(124,92,255,.3)}
+.vcard .t{font-family:Inter;font-weight:700;font-size:14px;letter-spacing:.05em;text-transform:uppercase;color:var(--dim);margin-bottom:6px}
+.vcard.prg .t{color:var(--c1)}
+.vcard h3{font-family:Fraunces;font-size:26px;margin-bottom:18px}
+.vcard ul{list-style:none}
+.vcard li{padding:9px 0 9px 26px;position:relative;font-size:15px;color:var(--mut);border-bottom:1px solid var(--line)}
+.vcard li:last-child{border:none}
+.vcard li::before{content:'';position:absolute;left:2px;top:15px;width:8px;height:8px;border-radius:50%}
+.vcard.llm li::before{background:var(--dim)}
+.vcard.prg li::before{background:var(--c2)}
+.vcard li b{color:var(--ink)}
+
+/* comparison table */
+.tbl{margin-top:20px;border:1px solid var(--line);border-radius:18px;overflow:hidden}
+.row{display:grid;grid-template-columns:1.3fr 1fr 1fr;border-bottom:1px solid var(--line)}
+.row:last-child{border:none}
+.row>div{padding:16px 18px;font-size:14.5px}
+.row.head>div{background:rgba(255,255,255,.04);font-weight:700;font-family:Inter;font-size:13px;text-transform:uppercase;letter-spacing:.05em}
+.row .feat{color:var(--ink);font-weight:600;background:rgba(255,255,255,.015)}
+.row .llmcol{color:var(--mut)}
+.row .prgcol{color:var(--ink);background:rgba(124,92,255,.05)}
+.yes{color:var(--c2);font-weight:700}.no{color:#ff8a8a;font-weight:700}.part{color:var(--c4);font-weight:700}
+
+/* pros cons */
+.pc{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:24px}
+.pc .col{border-radius:18px;padding:26px;border:1px solid var(--line)}
+.pc .pros{background:linear-gradient(180deg,rgba(35,213,171,.07),transparent);border-color:rgba(35,213,171,.25)}
+.pc .cons{background:linear-gradient(180deg,rgba(255,122,194,.06),transparent);border-color:rgba(255,122,194,.22)}
+.pc h3{font-family:Inter;font-size:19px;font-weight:700;margin-bottom:14px}
+.pc .pros h3{color:var(--c2)}.pc .cons h3{color:var(--c3)}
+.pc li{list-style:none;padding:11px 0 11px 26px;position:relative;font-size:15px;color:var(--mut);border-bottom:1px solid var(--line)}
+.pc li:last-child{border:none}
+.pc li b{color:var(--ink)}
+.pc .pros li::before{content:'+';position:absolute;left:4px;color:var(--c2);font-weight:800}
+.pc .cons li::before{content:'−';position:absolute;left:5px;color:var(--c3);font-weight:800}
+
+.bottom{background:linear-gradient(180deg,rgba(124,92,255,.08),transparent);border:1px solid rgba(124,92,255,.25);border-radius:20px;padding:34px;margin:30px 0 70px}
+.bottom h3{font-family:Fraunces;font-size:24px;margin-bottom:12px}
+.bottom p{color:var(--mut);font-size:16px}
+.bottom b{color:var(--ink)}
+footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-size:14px;text-align:center}
+.reveal{opacity:0;transform:translateY(30px);transition:all .8s cubic-bezier(.2,.7,.2,1)}.reveal.in{opacity:1;transform:none}
+@media(max-width:720px){.vs,.pc{grid-template-columns:1fr}.row{grid-template-columns:1fr}.row .feat{font-size:15px}}
+</style>
+</head>
+<body>
+<nav><div class="wrap">
+  <div class="brand"><div class="dot"></div>Pragnosia</div>
+  <a href="index.html" class="back">← back to the story</a>
+</div></nav>
+
+<header><div class="wrap">
+  <span class="kicker">Honest comparison</span>
+  <h1>Pragnosia <span class="g">vs.</span> today's LLMs</h1>
+  <p class="lead">A spinning brain and a GPT-style model are built on opposite bets. Here is exactly where each one wins — and where each one loses. No spin (well… some spin).</p>
+</div></header>
+
+<!-- core difference -->
+<section><div class="wrap reveal">
+  <div class="tag">The fundamental difference</div>
+  <h2>Two opposite bets about thinking</h2>
+  <div class="vs">
+    <div class="vcard llm"><div class="t">Today's LLMs</div><h3>Predict the next word, at huge scale</h3>
+      <ul>
+        <li><b>Settle</b> on a representation in one forward pass — attention looks up patterns.</li>
+        <li><b>Frozen after training.</b> Learning new facts means fine-tuning or stuffing them into the prompt.</li>
+        <li><b>Knowledge lives in billions of weights</b> — vast, but fixed and hard to inspect.</li>
+        <li><b>Confidence is bolted on</b> — they often state wrong things fluently.</li>
+        <li><b>Power from scale</b>: trillions of tokens, billions–trillions of parameters.</li>
+      </ul></div>
+    <div class="vcard prg"><div class="t">Pragnosia</div><h3>Spin to compute, and keep living</h3>
+      <ul>
+        <li><b>Spins</b> — the answer is the phase of an ongoing oscillation, proven causal by brain-swap.</li>
+        <li><b>Alive.</b> Learns new facts online, forever, and remembers across sessions — no retraining.</li>
+        <li><b>Knowledge can be taught and recalled</b> on the fly, with surprise-modulated plasticity.</li>
+        <li><b>Confidence is intrinsic</b> — it abstains (“I don't know”) from its own uncertainty.</li>
+        <li><b>Power from mechanism</b>: tiny (176M), but causal, self-knowing, self-deciding.</li>
+      </ul></div>
+  </div>
+</div></section>
+
+<!-- table -->
+<section style="background:var(--bg2)"><div class="wrap reveal">
+  <div class="tag">Feature by feature</div>
+  <h2>Side by side</h2>
+  <div class="tbl">
+    <div class="row head"><div>Capability</div><div>Today's LLMs</div><div>Pragnosia</div></div>
+    <div class="row"><div class="feat">Fluent language</div><div class="llmcol"><span class="yes">Strong</span> — document-level</div><div class="prgcol"><span class="part">Decent</span> — sentence-level (small)</div></div>
+    <div class="row"><div class="feat">World knowledge</div><div class="llmcol"><span class="yes">Vast</span></div><div class="prgcol"><span class="part">Limited</span> (176M can't store much)</div></div>
+    <div class="row"><div class="feat">Reasoning depth</div><div class="llmcol"><span class="yes">Strong</span> (math, code, logic)</div><div class="prgcol"><span class="part">Shallow</span> but real & causal</div></div>
+    <div class="row"><div class="feat">Causally-proven reasoning</div><div class="llmcol"><span class="no">Unverified</span></div><div class="prgcol"><span class="yes">Yes</span> — brain-swap test</div></div>
+    <div class="row"><div class="feat">Knows what it doesn't know</div><div class="llmcol"><span class="part">Partial</span>, bolted on</div><div class="prgcol"><span class="yes">Built-in</span> — abstains</div></div>
+    <div class="row"><div class="feat">Learn after training (no retrain)</div><div class="llmcol"><span class="no">No</span> — frozen</div><div class="prgcol"><span class="yes">Yes</span> — continuous, persistent</div></div>
+    <div class="row"><div class="feat">Forgetting when updated</div><div class="llmcol"><span class="no">Catastrophic</span></div><div class="prgcol"><span class="yes">Low</span> — replay + plasticity</div></div>
+    <div class="row"><div class="feat">Self-paced learning rate</div><div class="llmcol"><span class="no">Fixed schedule</span></div><div class="prgcol"><span class="yes">Surprise-modulated</span> (brain-like)</div></div>
+    <div class="row"><div class="feat">Knows itself</div><div class="llmcol"><span class="part">Scripted</span></div><div class="prgcol"><span class="yes">From its own weights</span></div></div>
+    <div class="row"><div class="feat">Size / cost</div><div class="llmcol"><span class="no">Huge</span> (data-center)</div><div class="prgcol"><span class="yes">Tiny</span> (one laptop)</div></div>
+    <div class="row"><div class="feat">Hardcoded behavior</div><div class="llmcol">—</div><div class="prgcol"><span class="yes">None</span> — all self-derived</div></div>
+  </div>
+</div></section>
+
+<!-- pros / cons -->
+<section><div class="wrap reveal">
+  <div class="tag">The honest ledger</div>
+  <h2>Pros &amp; cons of the spinning approach</h2>
+  <div class="pc">
+    <div class="col pros"><h3>Where Pragnosia wins</h3><ul>
+      <li><b>Genuinely alive</b> — learns and remembers forever without retraining or forgetting. Even frontier LLMs can't do this.</li>
+      <li><b>Honest by design</b> — says “I don't know” from its own uncertainty instead of confidently bluffing.</li>
+      <li><b>Provably reasoning</b> — the brain-swap test shows it computes in-state, not by memorized lookup.</li>
+      <li><b>Tiny &amp; cheap</b> — runs and trains on a single laptop GPU; ~700 MB on disk.</li>
+      <li><b>Brain-like learning</b> — surprise-modulated plasticity: learns hard on the new, gently on the familiar.</li>
+      <li><b>Nothing hardcoded</b> — what matters, when to abstain, what to recall: all derived from data, re-tuned as it grows.</li>
+    </ul></div>
+    <div class="col cons"><h3>Where it loses (for now)</h3><ul>
+      <li><b>Weak knowledge &amp; reasoning depth</b> — 176M simply can't match a billion-parameter model's breadth.</li>
+      <li><b>Can be confidently wrong</b> on familiar-but-incorrect facts (the same failure as big LLMs).</li>
+      <li><b>Slower per token</b> — the spinning core is sequential; it can't parallelize across time like pure attention.</li>
+      <li><b>Not a finished product</b> — it's a research substrate proving mechanisms, not a polished assistant.</li>
+      <li><b>Emergence unproven at scale</b> — one emergent mechanism (phase), but broad emergent skills need more scale.</li>
+    </ul></div>
+  </div>
+</div></section>
+
+<!-- bottom line -->
+<section><div class="wrap reveal">
+  <div class="bottom">
+    <h3>The bottom line</h3>
+    <p>An LLM is a <b>brilliant, frozen library</b> — enormous knowledge, but it stops learning the day training ends and will fluently invent an answer rather than admit ignorance. Pragnosia is a <b>tiny, living mind</b> — it knows far less, but it <b>keeps learning, knows the edge of its own knowledge, refuses to fabricate, and provably reasons in motion</b>. The bet: those properties — alive, honest, causal — are what a frozen trillion-parameter model fundamentally lacks. Scale makes a better library; this is an attempt at a better <i>brain</i>.</p>
+  </div>
+</div></section>
+
+<footer>Every comparison here is grounded in measured results from the project — including the limitations. <a href="index.html">← back to the story</a></footer>
+
+<script>
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)e.target.classList.add('in')}),{threshold:.12});
+document.querySelectorAll('.reveal').forEach(e=>io.observe(e));
+</script>
+</body>
+</html>

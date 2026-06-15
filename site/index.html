@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pragnosia — the brain that spins to think</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#070912; --bg2:#0c1020; --ink:#e8ecf8; --mut:#9aa6c8; --dim:#6b76a0;
+  --c1:#7c5cff; --c2:#23d5ab; --c3:#ff7ac2; --c4:#ffd166; --line:rgba(255,255,255,.08);
+  --glass:rgba(255,255,255,.035);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;background:var(--bg)}
+body{background:radial-gradient(1200px 800px at 70% -10%,#161a36 0,var(--bg) 55%);
+  color:var(--ink);font-family:Inter,system-ui,sans-serif;line-height:1.65;overflow-x:hidden}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+h1,h2,h3{font-family:Fraunces,serif;line-height:1.1;letter-spacing:-.02em}
+a{color:var(--c2);text-decoration:none}
+.mono{font-family:'JetBrains Mono',monospace}
+
+/* nav */
+nav{position:fixed;top:0;left:0;right:0;z-index:50;backdrop-filter:blur(14px);
+  background:rgba(7,9,18,.6);border-bottom:1px solid var(--line)}
+nav .wrap{display:flex;align-items:center;justify-content:space-between;height:62px}
+.brand{display:flex;align-items:center;gap:11px;font-weight:700}
+.brand .dot{width:26px;height:26px;border-radius:50%;background:conic-gradient(from 0deg,var(--c1),var(--c2),var(--c3),var(--c4),var(--c1));animation:spin 6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.navlinks a{color:var(--mut);margin-left:22px;font-size:14px;font-weight:500}
+.navlinks a:hover{color:var(--ink)}
+.pill{padding:8px 16px;border:1px solid var(--c2);border-radius:30px;color:var(--c2)!important;font-weight:600}
+
+/* hero */
+header{position:relative;min-height:100vh;display:flex;align-items:center;overflow:hidden}
+#heroCanvas{position:absolute;inset:0;width:100%;height:100%;opacity:.9}
+.hero-c{position:relative;z-index:2}
+.kicker{display:inline-block;font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--c2);margin-bottom:20px;font-weight:600}
+header h1{font-size:clamp(44px,8vw,92px);font-weight:900;margin-bottom:18px}
+header h1 .g{background:linear-gradient(120deg,var(--c1),var(--c3),var(--c4));-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{font-size:clamp(18px,2.4vw,24px);color:var(--mut);max-width:640px}
+.scroll-hint{position:absolute;bottom:30px;left:50%;transform:translateX(-50%);color:var(--dim);font-size:13px;z-index:2;animation:bob 2s ease-in-out infinite}
+@keyframes bob{50%{transform:translate(-50%,8px)}}
+
+/* sections */
+section{padding:110px 0;position:relative}
+.tag{font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:var(--c3);font-weight:600;margin-bottom:14px}
+section h2{font-size:clamp(30px,5vw,52px);font-weight:600;margin-bottom:8px}
+.lead{font-size:clamp(18px,2.2vw,22px);color:var(--mut);max-width:720px;margin-bottom:18px}
+.two-level{display:grid;grid-template-columns:1fr;gap:0;max-width:760px}
+.simple{font-size:19px;color:var(--ink);padding:18px 22px;border-left:3px solid var(--c2);background:var(--glass);border-radius:0 12px 12px 0}
+.simple b{color:var(--c2)}
+.deep{font-size:15.5px;color:var(--mut);margin-top:14px;padding-left:22px}
+.deep summary{cursor:pointer;color:var(--dim);font-weight:600;font-size:13px;letter-spacing:.05em;text-transform:uppercase;list-style:none}
+.deep summary::before{content:'▸ ';color:var(--c1)}
+.deep[open] summary::before{content:'▾ '}
+.deep p{margin-top:10px}
+
+/* reveal */
+.reveal{opacity:0;transform:translateY(36px);transition:all .9s cubic-bezier(.2,.7,.2,1)}
+.reveal.in{opacity:1;transform:none}
+
+/* canvas demo cards */
+.demo{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:40px}
+.card{background:var(--glass);border:1px solid var(--line);border-radius:18px;padding:26px;position:relative;overflow:hidden}
+.card h3{font-size:21px;margin-bottom:6px}
+.card .cap{color:var(--dim);font-size:14px;margin-bottom:16px}
+.card canvas{width:100%;height:200px;display:block;border-radius:12px;background:rgba(0,0,0,.25)}
+.verdict{margin-top:16px;font-size:14px;font-weight:600}
+.bad{color:#ff8a8a}.good{color:var(--c2)}
+
+/* faculties */
+.fac-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:40px}
+.fac{background:var(--glass);border:1px solid var(--line);border-radius:16px;padding:22px;transition:.4s}
+.fac:hover{border-color:var(--c1);transform:translateY(-4px)}
+.fac .ic{font-size:26px;margin-bottom:10px}
+.fac h4{font-size:17px;font-family:Inter;font-weight:700;margin-bottom:6px}
+.fac p{font-size:14px;color:var(--mut)}
+.fac .pf{margin-top:10px;font-size:12px;color:var(--c2);font-family:'JetBrains Mono'}
+
+/* teach demo */
+.teach{background:var(--glass);border:1px solid var(--line);border-radius:18px;padding:30px;margin-top:36px;max-width:760px}
+.chat-line{display:flex;gap:12px;margin:14px 0;opacity:0;transform:translateY(12px)}
+.chat-line.show{opacity:1;transform:none;transition:.5s}
+.who{flex:0 0 64px;font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;padding-top:4px;font-weight:600}
+.msg{background:rgba(255,255,255,.05);padding:12px 16px;border-radius:12px;font-size:15px}
+.msg.you{background:rgba(124,92,255,.14)}
+.msg .note{display:block;font-size:12px;color:var(--c4);margin-top:5px;font-family:'JetBrains Mono'}
+.replay{margin-top:18px;background:none;border:1px solid var(--line);color:var(--mut);padding:9px 18px;border-radius:24px;cursor:pointer;font-size:13px;font-weight:600}
+.replay:hover{border-color:var(--c2);color:var(--c2)}
+
+/* arch */
+.arch{display:flex;flex-wrap:wrap;gap:18px;margin-top:40px;align-items:stretch}
+.block{flex:1;min-width:220px;background:var(--glass);border:1px solid var(--line);border-radius:16px;padding:22px}
+.block .lbl{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--c1);font-weight:700;margin-bottom:8px}
+.block h4{font-family:Inter;font-size:18px;font-weight:700;margin-bottom:6px}
+.block p{font-size:14px;color:var(--mut)}
+
+/* timeline */
+.tl{margin-top:40px;border-left:2px solid var(--line);padding-left:28px}
+.tl-item{position:relative;padding-bottom:30px}
+.tl-item::before{content:'';position:absolute;left:-35px;top:4px;width:13px;height:13px;border-radius:50%;background:var(--c2);box-shadow:0 0 0 4px rgba(35,213,171,.15)}
+.tl-item .st{font-family:'JetBrains Mono';font-size:13px;color:var(--c4)}
+.tl-item h4{font-family:Inter;font-size:18px;font-weight:700;margin:3px 0 5px}
+.tl-item p{font-size:14.5px;color:var(--mut)}
+.tl-item .num{color:var(--c2);font-family:'JetBrains Mono';font-weight:600}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:18px;margin-top:40px}
+.stat{text-align:center;padding:26px 14px;background:var(--glass);border:1px solid var(--line);border-radius:16px}
+.stat .big{font-family:Fraunces;font-size:42px;font-weight:900;background:linear-gradient(120deg,var(--c2),var(--c1));-webkit-background-clip:text;background-clip:text;color:transparent}
+.stat .lab{font-size:13px;color:var(--mut);margin-top:4px}
+
+/* honesty */
+.honest{background:linear-gradient(180deg,rgba(255,122,194,.06),transparent);border:1px solid rgba(255,122,194,.2);border-radius:18px;padding:30px;margin-top:36px}
+.honest h3{font-family:Inter;font-size:20px;font-weight:700;color:var(--c3);margin-bottom:14px}
+.honest li{list-style:none;padding:10px 0 10px 28px;position:relative;color:var(--mut);font-size:15px;border-bottom:1px solid var(--line)}
+.honest li:last-child{border:none}
+.honest li::before{content:'•';position:absolute;left:6px;color:var(--c3);font-size:20px}
+.honest li b{color:var(--ink)}
+
+/* cta */
+.cta{text-align:center;padding:90px 0}
+.cta a.big{display:inline-block;margin-top:24px;padding:16px 38px;background:linear-gradient(120deg,var(--c1),var(--c3));color:#fff!important;border-radius:32px;font-weight:700;font-size:17px;box-shadow:0 14px 40px rgba(124,92,255,.35);transition:.3s}
+.cta a.big:hover{transform:translateY(-3px);box-shadow:0 20px 50px rgba(124,92,255,.5)}
+footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-size:14px;text-align:center}
+@media(max-width:720px){.demo{grid-template-columns:1fr}.navlinks{display:none}}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <div class="brand"><div class="dot"></div>Pragnosia</div>
+  <div class="navlinks">
+    <a href="#spin">The idea</a><a href="#proof">Proof</a><a href="#faculties">What it does</a>
+    <a href="#journey">The journey</a><a href="#roadmap">Roadmap</a><a href="compare.html" class="pill">vs. LLMs →</a>
+  </div>
+</div></nav>
+
+<header>
+  <canvas id="heroCanvas"></canvas>
+  <div class="wrap hero-c">
+    <span class="kicker">A new kind of AI brain</span>
+    <h1>Most AI <span style="color:var(--dim)">settles.</span><br>This one <span class="g">spins.</span></h1>
+    <p class="sub">Pragnosia is a tiny "spinning brain" that thinks by moving in circles — never stopping on an answer, but holding it in the <i>angle</i> of its motion. It reasons, knows what it doesn't know, and keeps learning forever.</p>
+  </div>
+  <div class="scroll-hint">scroll to see how it works ↓</div>
+</header>
+
+<!-- THE IDEA -->
+<section id="spin"><div class="wrap reveal">
+  <div class="tag">The core idea</div>
+  <h2>An answer you can spin</h2>
+  <div class="two-level">
+    <p class="simple">🌀 Imagine a tiny dancer that <b>never stops twirling</b>. Where it's <i>pointing</i> at the right moment <i>is</i> the answer. Most AIs are like a ball rolling to a stop in a bowl — they <b>settle</b>. Pragnosia keeps <b>spinning</b>, and the answer lives in the direction it spins.</p>
+    <details class="deep" open><summary>The precise version</summary>
+      <p>The core update is <span class="mono">F(h,x) = (1−η)h + η·tanh(Wh + Ux + b)</span> with <span class="mono">W = −ρ(QQᵀ) + S</span>, where <span class="mono">Q</span> is orthonormal and <span class="mono">S</span> is skew-symmetric. The skew term makes the dynamics <b>rotational</b> — orbits, not fixed points. The answer is encoded in the <b>phase</b> of a non-converging oscillation, rather than in a settled state vector. This is the project's central, experimentally-validated discovery.</p>
+    </details>
+  </div>
+  <div class="demo">
+    <div class="card"><h3>A normal network: settles</h3><div class="cap">activity rolls to a stop and stays</div>
+      <canvas id="settleC"></canvas><div class="verdict bad">→ the answer is a resting place (easy to just memorize)</div></div>
+    <div class="card"><h3>Pragnosia: spins</h3><div class="cap">activity orbits forever — answer = the angle</div>
+      <canvas id="spinC"></canvas><div class="verdict good">→ the answer is computed in motion, not looked up</div></div>
+  </div>
+</div></section>
+
+<!-- PROOF -->
+<section id="proof" style="background:var(--bg2)"><div class="wrap reveal">
+  <div class="tag">How we know it's real</div>
+  <h2>The brain-swap test</h2>
+  <div class="two-level">
+    <p class="simple">🧪 If the answer really lives in the spinning (not in a memorized lookup), then <b>swapping the spin mid-thought should change the answer</b>. We tried it — and the answer followed the swapped-in spin, not the original question. A random swap just scrambles to chance. So it's <b>really thinking</b>, not reciting.</p>
+    <details class="deep"><summary>The measured numbers</summary>
+      <p>On inputs where two problems have different answers, we ran one, swapped its mid-trajectory state with the other's, and continued. The final answer <b>followed the swapped-in state 59%</b> of the time, the original input only 10%, and a random-state control 21% (chance). Far above the memorization baseline — causal evidence the computation lives in the evolving state.</p>
+    </details>
+  </div>
+  <div class="card" style="margin-top:36px;max-width:760px"><h3>Watch the swap</h3>
+    <div class="cap">two thoughts running — we splice one into the other mid-way</div>
+    <canvas id="swapC" style="height:230px"></canvas>
+    <div class="verdict good" id="swapVerdict">the answer follows the spliced-in spin → it computes, it doesn't memorize</div>
+  </div>
+</div></section>
+
+<!-- FACULTIES -->
+<section id="faculties"><div class="wrap reveal">
+  <div class="tag">What it can do</div>
+  <h2>One small brain, many faculties</h2>
+  <p class="lead">Everything below lives in a single model and is verified together — not in separate demos.</p>
+  <div class="fac-grid">
+    <div class="fac"><div class="ic">🧮</div><h4>Reasons</h4><p>Computes answers in its spinning state — proven causal, not memorized.</p><div class="pf">brain-swap ✓</div></div>
+    <div class="fac"><div class="ic">🙋</div><h4>Knows what it doesn't know</h4><p>Measures its own uncertainty and says “I don't know” instead of bluffing.</p><div class="pf">abstains on the unknown ✓</div></div>
+    <div class="fac"><div class="ic">🔎</div><h4>Seeks</h4><p>When unsure, it looks the answer up in its own memory instead of guessing.</p><div class="pf">retrieval ✓</div></div>
+    <div class="fac"><div class="ic">🌱</div><h4>Learns forever</h4><p>Teach it a fact once and it remembers — across sessions, without forgetting the rest.</p><div class="pf">continuous learning ✓</div></div>
+    <div class="fac"><div class="ic">⚡</div><h4>Self-paced plasticity</h4><p>Learns hard on surprising things, gently on familiar ones — like a real brain's neuromodulation.</p><div class="pf">surprise-modulated ✓</div></div>
+    <div class="fac"><div class="ic">🪞</div><h4>Knows itself</h4><p>Knows its own name, nature, and the edge of its knowledge — recalled from its own weights.</p><div class="pf">self-model ✓</div></div>
+    <div class="fac"><div class="ic">💬</div><h4>Talks &amp; decides</h4><p>Chooses to answer, seek, abstain or learn entirely by itself — nothing hardcoded.</p><div class="pf">autonomous ✓</div></div>
+    <div class="fac"><div class="ic">👁️</div><h4>Omni (toy scale)</h4><p>Fuses symbols, images and sounds into one shared understanding.</p><div class="pf">multimodal ✓</div></div>
+  </div>
+</div></section>
+
+<!-- TEACH DEMO -->
+<section style="background:var(--bg2)"><div class="wrap reveal">
+  <div class="tag">The “alive” part</div>
+  <h2>It learns while you talk to it</h2>
+  <p class="lead">No retraining. You tell it something new, it decides on its own that it's worth learning, and it remembers — forever.</p>
+  <div class="teach" id="teach">
+    <div class="chat-line" data-d="0"><div class="who">you</div><div class="msg you">The capital of Mongolia is Ulaanbaatar.</div></div>
+    <div class="chat-line" data-d="1"><div class="who">brain</div><div class="msg">That's new to me — I've learned it.<span class="note">[decided: learn · surprise 7.4 &gt; familiar 5.7 → learns harder]</span></div></div>
+    <div class="chat-line" data-d="2"><div class="who">you</div><div class="msg you">…(new session, fact not shown)… The capital of Mongolia is</div></div>
+    <div class="chat-line" data-d="3"><div class="who">brain</div><div class="msg">Ulaanbaatar.<span class="note">[recalled from its own weights — it remembered]</span></div></div>
+    <button class="replay" onclick="playTeach()">▶ replay</button>
+  </div>
+</div></section>
+
+<!-- ARCHITECTURE -->
+<section id="arch"><div class="wrap reveal">
+  <div class="tag">Inside the head</div>
+  <h2>Spinning where it matters, attention for words</h2>
+  <p class="lead">Pure spinning is a beautiful reasoner but a weak talker. So the language part is a hybrid — and the reasoning faculties stay pure spin.</p>
+  <div class="arch">
+    <div class="block"><div class="lbl">Substrate</div><h4>🌀 Spinning core</h4><p>Rotational dynamics that hold answers in phase. Powers reasoning, abstention, seeking, exact counting, and the alive loop — all brain-swap-verified.</p></div>
+    <div class="block"><div class="lbl">Language</div><h4>🔭 Attention + spin carrier</h4><p>Transformer attention gives fluent language; a single gated spin “carrier” keeps a rotational memory across words. ~3× better than pure spin at text.</p></div>
+    <div class="block"><div class="lbl">Glue</div><h4>🧭 Self-calibration</h4><p>What words matter, when to abstain, what counts as a memory match — all <i>derived from data</i>, never hand-set, and re-derived as the brain grows.</p></div>
+  </div>
+</div></section>
+
+<!-- JOURNEY -->
+<section id="journey" style="background:var(--bg2)"><div class="wrap reveal">
+  <div class="tag">The journey</div>
+  <h2>From a 0.3M toy to a 176M brain</h2>
+  <div class="stats">
+    <div class="stat"><div class="big">14/14</div><div class="lab">proven faculties pass</div></div>
+    <div class="stat"><div class="big">176M</div><div class="lab">parameters (laptop max)</div></div>
+    <div class="stat"><div class="big">201M</div><div class="lab">training tokens</div></div>
+    <div class="stat"><div class="big">0%</div><div class="lab">hardcoded decisions</div></div>
+  </div>
+  <div class="tl">
+    <div class="tl-item"><div class="st">START</div><h4>The proven toy brain</h4><p>302K parameters, all 14 faculties verified — reasoning, abstention, seeking, exact counting, the alive loop, multimodal fusion.</p></div>
+    <div class="tl-item"><div class="st">SCALE → S1–S3</div><h4>Language that scales</h4><p>Cracked compositional parsing (<span class="num">1.00</span> held-out), real-corpus generation, and conversation.</p></div>
+    <div class="tl-item"><div class="st">S4–S6</div><h4>The hybrid breakthrough</h4><p>Spin + attention dropped perplexity <span class="num">~3×</span> while keeping the spinning reasoning intact.</p></div>
+    <div class="tl-item"><div class="st">INTEGRATE</div><h4>One brain, “Pragnosia”</h4><p>Every faculty wired into a single object that decides for itself, learns continuously, and knows itself — with nothing hardcoded.</p></div>
+    <div class="tl-item"><div class="st">NOW</div><h4>176M on a refined corpus</h4><p>Training from scratch on knowledge + reasoning + math + code + chat + grammar (stories only 10%), GPU-adaptive and resumable.</p></div>
+  </div>
+</div></section>
+
+<!-- HONESTY -->
+<section><div class="wrap reveal">
+  <div class="tag">No hype</div>
+  <h2>What's honestly still hard</h2>
+  <p class="lead">Every claim here has a number behind it — including the limits.</p>
+  <div class="honest"><ul>
+    <li><b>It's small.</b> 176M params is GPT-2 class. It reasons and recalls <i>weakly</i> compared to frontier models — strength comes from scale + data, which one laptop can only partly provide.</li>
+    <li><b>Reasoning is real but shallow.</b> It genuinely does commonsense (“if it rains, the ground becomes → wet”), learned from data, not hardcoded — but gets a fair share wrong at this size.</li>
+    <li><b>Knowledge can be confidently wrong.</b> Like all small models, it can state a familiar-but-incorrect fact. Its “I don't know” catches the clearly-unknown, not the subtly-wrong.</li>
+    <li><b>Emergence is one mechanism, not many capabilities.</b> The phase-encoding strategy emerged; broad emergent skills need scale we don't have yet.</li>
+  </ul></div>
+</div></section>
+
+<!-- ROADMAP -->
+<section id="roadmap"><div class="wrap reveal">
+  <div class="tag">What's next</div>
+  <h2>The roadmap</h2>
+  <p class="lead">The mechanisms are proven. From here the work is scale, data, and pushing each faculty out of the lab — in honest, testable steps.</p>
+  <div class="tl">
+    <div class="tl-item"><div class="st">NOW</div><h4>Scale the language brain</h4><p>176M parameters on a refined corpus — knowledge, reasoning, math, code, chat, grammar — training and learning on a single laptop.</p></div>
+    <div class="tl-item"><div class="st">NEXT</div><h4>Sharper honesty &amp; more data</h4><p>A <span class="num">trained</span> confidence head for crisp “I don't know”, plus far more reasoning-rich data — the real lever for capability.</p></div>
+    <div class="tl-item"><div class="st">THEN</div><h4>Scale the living faculties</h4><p>Continuous learning from 8 facts to <span class="num">thousands</span>, real retrieval (RAG-style seeking), and relational vision &amp; audio at scale.</p></div>
+    <div class="tl-item"><div class="st">VISION</div><h4>An always-on, lifelong mind</h4><p>One small brain that runs on your device, keeps learning <i>you</i> forever, never fabricates, and explains its own reasoning.</p></div>
+  </div>
+</div></section>
+
+<!-- USE CASES -->
+<section id="usecases" style="background:var(--bg2)"><div class="wrap reveal">
+  <div class="tag">Where it fits</div>
+  <h2>What a brain like this is for</h2>
+  <p class="lead">The wins aren't “beat GPT at trivia.” They're the things a frozen, cloud-bound model fundamentally can't do.</p>
+  <div class="fac-grid">
+    <div class="fac"><div class="ic">📱</div><h4>On-device assistant that learns <i>you</i></h4><p>Runs on a phone or laptop, continually learns your facts and preferences — no cloud, no retraining, nothing leaves the device.</p><div class="pf">tiny · alive · private</div></div>
+    <div class="fac"><div class="ic">🩺</div><h4>Honest help in high-stakes domains</h4><p>For medicine, law, finance: says “I don't know” and looks it up instead of confidently inventing an answer.</p><div class="pf">abstains · seeks</div></div>
+    <div class="fac"><div class="ic">🤖</div><h4>Lifelong-learning robots &amp; agents</h4><p>Learns from its environment online, driven by its own curiosity, without forgetting what it already knew.</p><div class="pf">alive loop · curiosity</div></div>
+    <div class="fac"><div class="ic">🔒</div><h4>Private, offline, edge AI</h4><p>Cheap enough to run anywhere with no data center — and it learns locally, so your data never has to leave.</p><div class="pf">~700MB · no cloud</div></div>
+    <div class="fac"><div class="ic">🔍</div><h4>Auditable, accountable AI</h4><p>Reasoning you can causally probe (brain-swap) — for settings that demand the model show its work.</p><div class="pf">causal · interpretable</div></div>
+    <div class="fac"><div class="ic">🎓</div><h4>Adaptive tutoring &amp; personalization</h4><p>Learns each individual learner continually, adapting to them over months — not a one-size static model.</p><div class="pf">per-user memory</div></div>
+  </div>
+</div></section>
+
+<div class="cta wrap reveal">
+  <h2>So how is this different from ChatGPT?</h2>
+  <p class="lead" style="margin:14px auto 0">An honest, side-by-side comparison — the real pros and cons.</p>
+  <a class="big" href="compare.html">See Pragnosia vs. today's LLMs →</a>
+</div>
+
+<footer>Pragnosia — a spinning brain. Built and documented in full: every mechanism causal, every number checkable, nothing hardcoded.</footer>
+
+<script>
+/* ---------- scroll reveal ---------- */
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)e.target.classList.add('in')}),{threshold:.15});
+document.querySelectorAll('.reveal').forEach(e=>io.observe(e));
+/* safety net: never leave content hidden if observer timing is odd */
+addEventListener('load',()=>setTimeout(()=>document.querySelectorAll('.reveal:not(.in)').forEach(e=>{
+  if(e.getBoundingClientRect().top<innerHeight*1.2)e.classList.add('in')}),300));
+
+/* ---------- hero particle brain ---------- */
+(function(){const c=document.getElementById('heroCanvas'),x=c.getContext('2d');let w,h,t=0;
+const N=90,P=[];function rs(){w=c.width=innerWidth;h=c.height=innerHeight;}rs();onresize=rs;
+for(let i=0;i<N;i++){const a=Math.random()*6.28,r=80+Math.random()*260;P.push({a,r,s:.0008+Math.random()*.0016,o:Math.random()*6.28})}
+const cols=['#7c5cff','#23d5ab','#ff7ac2','#ffd166'];
+(function loop(){t++;x.clearRect(0,0,w,h);const cx=w*.72,cy=h*.42;
+for(let i=0;i<N;i++){const p=P[i];p.a+=p.s;const wob=Math.sin(t*.01+p.o)*18;
+const px=cx+Math.cos(p.a)*(p.r+wob),py=cy+Math.sin(p.a)*(p.r+wob)*.62;
+for(let j=i+1;j<N;j++){const q=P[j];const qx=cx+Math.cos(q.a)*(q.r+Math.sin(t*.01+q.o)*18),qy=cy+Math.sin(q.a)*(q.r+Math.sin(t*.01+q.o)*18)*.62;
+const d=Math.hypot(px-qx,py-qy);if(d<70){x.strokeStyle='rgba(124,140,220,'+(.06*(1-d/70))+')';x.beginPath();x.moveTo(px,py);x.lineTo(qx,qy);x.stroke()}}
+x.fillStyle=cols[i%4];x.globalAlpha=.8;x.beginPath();x.arc(px,py,1.8,0,6.3);x.fill();x.globalAlpha=1}
+requestAnimationFrame(loop)})()})();
+
+/* ---------- settle vs spin ---------- */
+function orbit(id,settle){const c=document.getElementById(id),x=c.getContext('2d');
+function rs(){c.width=c.clientWidth*2;c.height=c.clientHeight*2;x.scale(2,2)}rs();
+let t=0,W=c.clientWidth,H=c.clientHeight,trail=[];
+(function l(){t++;x.clearRect(0,0,W,H);const cx=W/2,cy=H/2;
+let R=settle?Math.max(4,60*Math.exp(-t/120)):54+Math.sin(t*.03)*6;
+const a=t*.06,px=cx+Math.cos(a)*R,py=cy+Math.sin(a)*R;
+trail.push([px,py]);if(trail.length>60)trail.shift();
+// rings
+x.strokeStyle='rgba(255,255,255,.06)';for(let r=15;r<70;r+=18){x.beginPath();x.arc(cx,cy,r,0,6.3);x.stroke()}
+// trail
+trail.forEach((p,i)=>{x.fillStyle=(settle?'rgba(255,138,138,':'rgba(35,213,171,')+(i/trail.length*.8)+')';x.beginPath();x.arc(p[0],p[1],2.2,0,6.3);x.fill()})
+// head + phase arm
+x.strokeStyle=settle?'#ff8a8a':'#23d5ab';x.lineWidth=2;x.beginPath();x.moveTo(cx,cy);x.lineTo(px,py);x.stroke();
+x.fillStyle=settle?'#ff8a8a':'#23d5ab';x.beginPath();x.arc(px,py,5,0,6.3);x.fill();
+x.fillStyle='rgba(255,255,255,.4)';x.font='11px JetBrains Mono';
+x.fillText(settle?(R<8?'settled · answer frozen':'settling…'):'phase = '+Math.round((a%6.283)/6.283*360)+'°  ↻',14,H-14);
+requestAnimationFrame(l)})()}
+orbit('settleC',true);orbit('spinC',false);
+
+/* ---------- brain swap ---------- */
+(function(){const c=document.getElementById('swapC'),x=c.getContext('2d');
+function rs(){c.width=c.clientWidth*2;c.height=c.clientHeight*2;x.scale(2,2)}rs();
+let t=0,W=c.clientWidth,H=c.clientHeight;
+(function l(){t++;x.clearRect(0,0,W,H);const phase=(t%420);
+const yA=H*.34,yB=H*.7;
+// two lanes
+[['A','#7c5cff',yA],['B','#ff7ac2',yB]].forEach(([n,col,y])=>{x.strokeStyle='rgba(255,255,255,.07)';x.beginPath();x.moveTo(40,y);x.lineTo(W-20,y);x.stroke();
+x.fillStyle=col;x.font='12px JetBrains Mono';x.fillText('thought '+n,8,y-14)});
+const swapX=W*.5;
+// moving dots
+function dot(y,col,ph){const px=40+((t*1.6+ph)%(W-60));x.fillStyle=col;x.beginPath();x.arc(px,y,5,0,6.3);x.fill();return px}
+// splice arrow at swapX
+x.strokeStyle='rgba(255,209,102,.7)';x.setLineDash([5,5]);x.beginPath();x.moveTo(swapX,yA);x.lineTo(swapX,yB);x.stroke();x.setLineDash([]);
+x.fillStyle='#ffd166';x.font='11px JetBrains Mono';x.fillText('✂ splice B → A here',swapX-50,H*.52);
+const pa=dot(yA,'#7c5cff',0);
+// A after splice takes B color/answer
+if(pa>swapX){x.fillStyle='#ff7ac2';x.beginPath();x.arc(pa,yA,7,0,6.3);x.fill();x.strokeStyle='#ffd166';x.lineWidth=2;x.stroke()}
+dot(yB,'#ff7ac2',120);
+x.fillStyle='rgba(255,255,255,.5)';x.font='11px JetBrains Mono';
+x.fillText('after the splice, thought A now ends with B\'s answer → 59% (chance 21%)',40,H-10);
+requestAnimationFrame(l)})()})();
+
+/* ---------- teach replay ---------- */
+function playTeach(){const ls=document.querySelectorAll('#teach .chat-line');ls.forEach(l=>l.classList.remove('show'));
+ls.forEach((l,i)=>setTimeout(()=>l.classList.add('show'),400+i*900))}
+const tio=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){playTeach();tio.disconnect()}}),{threshold:.4});
+tio.observe(document.getElementById('teach'));
+</script>
+</body>
+</html>

@@ -1,0 +1,142 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<title>Pragnosia — a spinning neural substrate</title>
+<style>
+@page{size:A4;margin:20mm 18mm}
+*{box-sizing:border-box}
+body{font-family:'Georgia','Times New Roman',serif;color:#16171d;line-height:1.5;font-size:10.5pt;margin:0;counter-reset:fig tbl sec}
+.col{max-width:760px;margin:0 auto;padding:0 8px}
+h1{font-size:21pt;line-height:1.18;margin:0 0 6px;text-align:center;font-weight:700;letter-spacing:-.01em}
+.authors{text-align:center;font-size:11pt;margin:8px 0 2px}
+.aff{text-align:center;font-size:9pt;color:#555;font-style:italic;margin-bottom:4px}
+.meta{text-align:center;font-size:8.5pt;color:#777;margin-bottom:18px}
+.abstract{font-size:9.7pt;background:#f6f6fa;border-left:3px solid #5b4bd6;padding:12px 16px;margin:0 0 8px;border-radius:0 6px 6px 0}
+.abstract b{font-variant:small-caps;letter-spacing:.03em}
+h2{font-size:12.5pt;margin:20px 0 6px;font-weight:700;counter-increment:sec}
+h2::before{content:counter(sec) ".  "}
+h3{font-size:10.8pt;margin:13px 0 3px;font-weight:700;font-style:italic}
+p{margin:0 0 7px;text-align:justify;hyphens:auto}
+.eq{text-align:center;font-family:'Cambria Math','Georgia',serif;font-size:11pt;margin:9px 0;font-style:italic}
+.eq .n{float:right;font-style:normal;color:#777;font-size:9pt}
+figure{margin:14px 0;text-align:center;page-break-inside:avoid}
+figure img{max-width:100%;border:1px solid #e6e6ee;border-radius:6px;background:#fff}
+figcaption{font-size:8.7pt;color:#444;margin-top:5px;text-align:left;padding:0 6px}
+figcaption b{counter-increment:fig}
+figcaption b::before{content:"Figure " counter(fig) ". "}
+table{border-collapse:collapse;width:100%;font-size:8.8pt;margin:10px 0;page-break-inside:avoid}
+caption{caption-side:top;font-size:8.7pt;color:#444;text-align:left;margin-bottom:4px}
+caption b{counter-increment:tbl}
+caption b::before{content:"Table " counter(tbl) ". "}
+th,td{border:1px solid #d8d8e2;padding:4px 8px;text-align:left}
+th{background:#f0f0f6;font-weight:700}
+td.n,th.n{text-align:center}
+.mono{font-family:'Consolas','Courier New',monospace;font-size:8.6pt}
+.good{color:#0f9b82;font-weight:700}.bad{color:#d6336c;font-weight:700}.part{color:#c98a00;font-weight:700}
+.refs{font-size:8.6pt;counter-reset:ref}
+.refs p{padding-left:22px;text-indent:-22px;counter-increment:ref;margin-bottom:4px}
+.refs p::before{content:"[" counter(ref) "]  ";font-weight:700}
+sup.c{color:#5b4bd6;font-weight:700}
+.cols2{column-count:1}
+.key{background:#eefaf6;border:1px solid #bfe9dd;border-radius:6px;padding:9px 13px;margin:9px 0;font-size:9.6pt}
+hr{border:none;border-top:1px solid #ddd;margin:18px 0}
+</style></head>
+<body><div class="col">
+
+<h1>Pragnosia: A Spinning Neural Substrate that Reasons<br>Causally, Knows Its Limits, and Learns Continually</h1>
+<div class="authors">Ashish</div>
+<div class="aff">Independent Research</div>
+<div class="meta">Preprint · 2026 · correspondence: ashish99anonymous@gmail.com</div>
+
+<div class="abstract"><b>Abstract.</b> Large language models are powerful but frozen: they stop learning when training ends, fabricate fluently rather than admit ignorance, and their reasoning is not demonstrably causal. We present <i>Pragnosia</i>, a compact neural substrate built on the opposite bet. Its core uses <i>rotational</i> recurrent dynamics, <span class="mono">W = −ρQQ<sup>T</sup> + S</span>, so that representations <i>orbit</i> rather than settle, and an answer is encoded in the <i>phase</i> of a non-converging oscillation. A causal "brain-swap" intervention confirms the answer lives in the evolving state (it follows a spliced-in trajectory 59% of the time vs. 10% for the input and 21% for a random control). On this substrate we integrate, into a <i>single</i> model, eight goal faculties — skill-conditioned reasoning, calibrated abstention, language-mediated seeking, exact state-tracking, multimodal perception, and a curiosity-driven continual-learning loop — all verified together (14/14). Because pure rotation is inefficient for language, we add a hybrid in which attention provides fluency while a single gated spin "carrier" preserves the rotational state, cutting perplexity ~3×. Every internal scale — word importance, the abstention boundary, the memory-match threshold — is <i>derived from data and re-derived as the model grows</i>; nothing is hand-set. Learning is self-modulated by surprise, like neuromodulated plasticity. We report honest results and limitations: at ≤176M parameters Pragnosia reasons and recalls only weakly, but it is alive, honest about its ignorance, and provably reasoning in motion — properties a frozen trillion-parameter model lacks.</div>
+
+<h2>Introduction</h2>
+<p>The dominant paradigm in artificial intelligence is the large language model (LLM): a transformer <sup class="c">1</sup> trained on enormous corpora to predict the next token. LLMs are remarkably capable, yet three properties of the goal of a <i>brain</i> remain unmet by construction. First, they are <i>frozen</i>: once pretraining ends they cannot acquire a new fact without fine-tuning or prompt-stuffing, and naive weight updates cause catastrophic forgetting <sup class="c">2</sup>. Second, they are <i>over-confident</i>: lacking an intrinsic model of their own uncertainty, they fabricate plausible answers rather than abstaining. Third, their reasoning is <i>not demonstrably causal</i> — there is no standard test separating computation from memorized retrieval.</p>
+<p>We ask whether a different substrate can exhibit the missing properties — continual learning without forgetting, calibrated honesty, and verifiable in-state computation — even at small scale, and whether language can be grafted onto it without destroying them. Our contributions are: (i) a rotational recurrent substrate whose answers are phase-encoded and <i>causally</i> verified (§2); (ii) the integration of eight goal faculties into one model, validated jointly (§3); (iii) a spin–attention hybrid that recovers language quality while preserving the reasoning substrate (§4); and (iv) a fully self-calibrating, autonomously-controlled brain with surprise-modulated continual learning and no hand-set constants (§5). We report results and an explicit account of what remains hard (§7–8).</p>
+
+<h2>The Spinning Substrate</h2>
+<h3>Core dynamics.</h3>
+<p>The recurrent core iterates, for hidden state <span class="mono">h</span> and input <span class="mono">x</span>,</p>
+<div class="eq">F(h, x) = (1−η)·h + η·tanh(W h + U x + b),<span class="n">(1)</span></div>
+<div class="eq">W = −ρ (Q Q<sup>T</sup>) + S,<span class="n">(2)</span></div>
+<p>where <span class="mono">Q</span> is orthonormal (via the QR factorization of a learned matrix) and <span class="mono">S</span> is skew-symmetric (<span class="mono">S = A − A<sup>T</sup></span>). The symmetric term <span class="mono">−ρQQ<sup>T</sup></span> is negative-definite and contractive; the skew term <span class="mono">S</span> contributes purely imaginary eigenvalues and is therefore <i>rotational</i>. Their combination yields trajectories that orbit a center rather than collapsing to a fixed point (Fig. 1). The trained network exploits this: rather than settling on an answer vector, it encodes the answer in the <i>phase</i> of a persistent oscillation.</p>
+<figure><img src="figs/fig_spin.png"><figcaption><b></b>Two regimes of recurrent dynamics in phase space. A conventional contractive network spirals to a fixed point (left); the spinning core sustains a closed orbit (right), with the instantaneous phase carrying the answer.</figcaption></figure>
+
+<h3>Causal validation: the brain-swap test.</h3>
+<p>If the answer is genuinely computed in the evolving state — rather than retrieved from a memorized input–output mapping — then transplanting the mid-trajectory state from a different problem should change the outcome. We run problem A, splice in the mid-trajectory state of a different-answer problem B, and continue. The final answer follows the <i>spliced-in</i> state B in 59% of trials, the original input A in only 10%, and a random-state control in 21% (chance ≈ 20%; Fig. 3). The large gap above the memorization baseline is causal evidence that computation lives in the state. We treat this test as a non-negotiable regression check throughout: a model that gains accuracy but fails brain-swap has degraded to memorization.</p>
+<figure><img src="figs/fig_brainswap.png" style="max-width:62%"><figcaption><b></b>Brain-swap intervention. Splicing a different problem's mid-trajectory state changes the answer to match the spliced-in state, far above the random-state and original-input baselines — the answer is computed in motion.</figcaption></figure>
+
+<h2>Many Faculties on One Core</h2>
+<p>The substrate hosts a family of faculties in a single model. <i>Skill-conditioned spinning</i> adds per-skill gain and bias vectors that modulate <i>how</i> the core spins, letting diverse skills share one core without interference. <i>Clean-state recurrence</i> addresses a proven limitation — the bare orbit cannot perform many-wrap exact modular arithmetic because a discrete count drifts in continuous state — by committing to the discrete argmax each step (straight-through) and feeding it back, restoring exact accumulation at arbitrary length. <i>Calibrated abstention</i> (P6) is trained in a mandatory two-phase order — skill first, then an abstain-incentive payoff — since co-training collapses to always-abstain. <i>Language-mediated seeking</i> (P7) generates a query <i>in words</i>, fetches from an external store, and integrates the result; facts are randomized per episode so retrieval cannot be memorized. The <i>alive loop</i> explores by its own uncertainty (curiosity), learns online with self-replay, and exhibits zero forgetting at toy scale. All eight faculties pass jointly in one 302K-parameter model (Fig. 6, Table 1).</p>
+<figure><img src="figs/fig_faculties.png" style="max-width:78%"><figcaption><b></b>All fourteen checks of the integrated self-test pass in a single model. Arrows (↓) mark metrics for which lower is better (needless abstention, random-value control, retention gap).</figcaption></figure>
+
+<h2>Scaling Language: the Spin–Attention Hybrid</h2>
+<p>Pure rotation is an elegant reasoner but an inefficient language model: on a real corpus a parameter-matched gated recurrent baseline outperforms it (perplexity 6.55 vs. 7.56), because language requires parallel context mixing that sequential orbits do not provide. Naively inserting a spin recurrence into every transformer block <i>worsens</i> results (it scrambles attention's context). The working design is <i>attention-dominant</i>: standard transformer blocks supply fluency, while a single gated spin <i>carrier</i> maintains a rotational cross-token memory. With the standard transformer recipe (scaled initialization and learning-rate warmup), the hybrid reaches roughly one-third the perplexity of the pure-spin model at matched steps (Fig. 4).</p>
+<figure><img src="figs/fig_ppl.png" style="max-width:64%"><figcaption><b></b>Validation perplexity during training. The spin–attention hybrid converges to ~3× lower perplexity than the pure-spinning language model on the same corpus.</figcaption></figure>
+<div class="key"><b>A goal-preserving split.</b> The brain-swap invariant is defined for <i>reasoning</i> ("the answer is in the phase"); language generation is a distinct faculty. We therefore keep the reasoning faculties <i>pure spin</i> (brain-swap holds where it is defined) and use the hybrid only for language. The invariant is preserved exactly where it applies, and language quality is recovered.</div>
+
+<h2>Integration, Self-Calibration, and Autonomy</h2>
+<p>All faculties and the hybrid language model are wired into a single object, "Pragnosia" (Fig. 2). Three design commitments distinguish it from a conventional model.</p>
+<figure><img src="figs/fig_arch.png"><figcaption><b></b>System overview. A shared input feeds the pure-spin reasoning core (top) and the attention+spin-carrier language faculty (bottom); both feed an autonomous controller that decides each action from the model's own signals.</figcaption></figure>
+<h3>Nothing hardcoded.</h3>
+<p>Every internal scale is derived from data and re-derived by a <span class="mono">recalibrate()</span> step as the model grows. Word importance is the self-information <span class="mono">−log p(token)</span> estimated from the training corpus — function words emerge as low-weight, content words high — with no stopword list. The abstention boundary is the high-percentile of the model's <i>own</i> uncertainty on familiar text. The memory-match threshold is read off the corpus's own background similarity distribution. None of these is hand-set.</p>
+<h3>Surprise-modulated plasticity.</h3>
+<p>Continual learning is self-paced like neuromodulation. When taught a fact, the brain sets its own learning rate from its own surprise — the prediction error divided by its familiarity boundary — learning hard on surprising input and gently on familiar input, and stopping once the fact ceases to surprise it (Fig. 5). Beyond biological plausibility, gentle steps on familiar input reduce interference. Taught facts persist across sessions; the model recalls them in fresh contexts (e.g., "the capital of Mongolia is" → "Ulaanbaatar") while retaining prior abilities.</p>
+<figure><img src="figs/fig_plasticity.png" style="max-width:60%"><figcaption><b></b>Self-modulated plasticity. The online learning rate is a function of the model's own surprise relative to its self-calibrated familiarity boundary; measured operating points for a surprising and a familiar input are marked.</figcaption></figure>
+<h3>Autonomous control.</h3>
+<p>A single controller decides, for any input, whether to answer, seek from memory, abstain, or learn — entirely from its own confidence and curiosity signals, with no keyword rules. Self-knowledge (the model's name and nature) is learned into the weights and recalled by the model's own generation, gated by its own confidence.</p>
+
+<h2>Experiments and Results</h2>
+<table><caption><b></b>The integrated self-test: one model, fourteen checks, all passing. (↓ lower is better.)</caption>
+<tr><th>Capability</th><th class="n">Measured</th><th class="n">Criterion</th><th class="n">Status</th></tr>
+<tr><td>Reasoning ×3 skills (parity / sum / max)</td><td class="n">0.92 / 0.90 / 0.93</td><td class="n">&gt;0.90</td><td class="n good">✓</td></tr>
+<tr><td>P5 confidence gap (knowable vs. unanswerable)</td><td class="n">0.34</td><td class="n">&gt;0.30</td><td class="n good">✓</td></tr>
+<tr><td>P6 abstain: known↓ / unknowable</td><td class="n">0.19 / 1.00</td><td class="n">&lt;0.25 / &gt;0.60</td><td class="n good">✓</td></tr>
+<tr><td>Language parse / generate (held-out)</td><td class="n">1.00 / 1.00</td><td class="n">&gt;0.80</td><td class="n good">✓</td></tr>
+<tr><td>Seek: query language / answer / random-ctrl↓</td><td class="n">1.00 / 1.00 / 0.13</td><td class="n">&gt;0.90 / &gt;0.85 / &lt;0.45</td><td class="n good">✓</td></tr>
+<tr><td>Exact accumulation, length 16</td><td class="n">1.00</td><td class="n">&gt;0.90</td><td class="n good">✓</td></tr>
+<tr><td>Alive loop: final / retention gap↓</td><td class="n">1.00 / 0.00</td><td class="n">&gt;0.95 / &lt;0.15</td><td class="n good">✓</td></tr>
+<tr><td>Brain-swap (causal): swapped / input / random</td><td class="n">0.59 / 0.10 / 0.21</td><td class="n">swapped ≫ random</td><td class="n good">✓</td></tr>
+</table>
+<p>Scaling the language faculty from 0.3M to 176M parameters and from toy grammars to a 201M-token corpus (Wikipedia, reasoning, mathematics, code, multi-turn chat, grammar, with narrative capped at ~10%) improves coherence and factual recall, while the full integrated self-test continues to pass — text training provably never touches the faculty weights, which we verify after every change.</p>
+
+<h2>Comparison with Large Language Models</h2>
+<table><caption><b></b>Where each paradigm wins. The two are built on opposite bets.</caption>
+<tr><th>Property</th><th>Today's LLMs</th><th>Pragnosia</th></tr>
+<tr><td>Fluent language / world knowledge</td><td class="good">Strong / vast</td><td class="part">Decent / limited (small)</td></tr>
+<tr><td>Reasoning depth</td><td class="good">Strong</td><td class="part">Shallow but real</td></tr>
+<tr><td>Causally-proven reasoning</td><td class="bad">Unverified</td><td class="good">Yes (brain-swap)</td></tr>
+<tr><td>Knows what it doesn't know</td><td class="part">Partial, bolted on</td><td class="good">Intrinsic (abstains)</td></tr>
+<tr><td>Learn after training, no retrain</td><td class="bad">No (frozen)</td><td class="good">Yes (persistent)</td></tr>
+<tr><td>Forgetting on update</td><td class="bad">Catastrophic</td><td class="good">Low (replay + plasticity)</td></tr>
+<tr><td>Self-paced learning rate</td><td class="bad">Fixed schedule</td><td class="good">Surprise-modulated</td></tr>
+<tr><td>Hand-set behavior</td><td>—</td><td class="good">None (self-derived)</td></tr>
+<tr><td>Size / cost</td><td class="bad">Data-center</td><td class="good">Single laptop GPU</td></tr>
+</table>
+<p>An LLM is a brilliant but frozen library; Pragnosia is a tiny living mind. The bet is that the properties a frozen model lacks — being alive, honest about ignorance, and causally reasoning — are worth pursuing on a substrate designed for them, even at the cost of present-day breadth.</p>
+
+<h2>Limitations</h2>
+<p>We state these plainly, as every claim above carries a number. (i) At ≤176M parameters Pragnosia is GPT-2 class; its reasoning and knowledge are <i>weak</i> relative to frontier models, and strength here requires scale and data a single laptop cannot fully provide. (ii) Like all small models it can be <i>confidently wrong</i> on familiar-but-incorrect facts; its abstention catches the clearly-unknown, not the subtly-wrong. (iii) The spinning core is <i>sequential</i> and cannot parallelize across time as pure attention does, so it is slower per token. (iv) Only one genuinely <i>emergent</i> mechanism (phase-encoding) is observed; broad emergent capabilities require scale beyond our regime. (v) Several non-language faculties remain at toy scale, wired and verified but not yet individually scaled. None of these is hidden; they are the honest frontier.</p>
+
+<h2>Future Directions and Applications</h2>
+<h3>Roadmap.</h3>
+<p>The mechanisms are established; the remaining work is scale, data, and maturation of each faculty. <i>Near-term</i>: replace the calibrated-threshold abstention with a trained confidence head (the proven two-phase recipe applied to language) for sharper refusal, and — the dominant lever — enlarge the corpus with reasoning-rich data, since reasoning is learned from examples rather than engineered. <i>Mid-term</i>: scale the living faculties — continual learning from a handful of facts to thousands with rehearsal-based consolidation, language-mediated seeking against a real retrieval index (RAG-style), and relational vision and audio beyond toy grids and tones. <i>Long-term</i>: a single on-device model that runs continuously, learns its user over months without forgetting, abstains rather than fabricates, and can explain its reasoning — an always-on, lifelong, personal mind rather than a frozen oracle.</p>
+<h3>Applications.</h3>
+<p>The compelling use cases are precisely those a frozen, cloud-bound model cannot serve. (i) <i>On-device assistants that learn the user</i>: a small, private model that continually acquires a person's facts and preferences locally, with no retraining and no data leaving the device. (ii) <i>Honest assistance in high-stakes domains</i> (medicine, law, finance): intrinsic abstention — saying "I do not know" and seeking — is safer than fluent fabrication. (iii) <i>Lifelong-learning robotics and embedded agents</i>: curiosity-driven online learning from the environment without catastrophic forgetting, within a footprint that fits on the edge. (iv) <i>Auditable AI</i>: causally-probeable reasoning (brain-swap) for accountability-sensitive settings. (v) <i>Adaptive tutoring and personalization</i>: a model that adapts to an individual learner over time rather than serving a static average. In each case the differentiator is not breadth of knowledge but the trio of properties this substrate is designed for — alive, honest, and causal — at a cost that runs anywhere.</p>
+
+<h2>Conclusion</h2>
+<p>Pragnosia demonstrates that a single small model can reason in a causally-verifiable way, model its own uncertainty and abstain, seek what it lacks, learn continually without forgetting under self-modulated plasticity, and decide its own actions — with no hand-set constants — while a spin–attention hybrid recovers usable language. These are precisely the brain-like properties that frozen large models lack. The path forward is not architectural cleverness but scale and reasoning-rich data on the same substrate; the mechanisms are in place and the integration is complete. We release the full system, every measured number, and every limitation.</p>
+
+<hr>
+<div class="refs">
+<p>Vaswani, A. et al. Attention Is All You Need. <i>NeurIPS</i>, 2017.</p>
+<p>McCloskey, M. &amp; Cohen, N. Catastrophic Interference in Connectionist Networks. <i>Psychology of Learning and Motivation</i>, 1989.</p>
+<p>Jaeger, H. &amp; Haas, H. Harnessing Nonlinearity: Predicting Chaotic Systems with Echo State Networks. <i>Science</i>, 2004.</p>
+<p>Sussillo, D. &amp; Barak, O. Opening the Black Box: Low-Dimensional Dynamics in High-Dimensional Recurrent Networks. <i>Neural Computation</i>, 2013.</p>
+<p>Bengio, Y. et al. Estimating or Propagating Gradients Through Stochastic Neurons (straight-through estimators). <i>arXiv:1308.3432</i>, 2013.</p>
+<p>Doya, K. Metalearning and Neuromodulation. <i>Neural Networks</i>, 2002.</p>
+<p>Robins, A. Catastrophic Forgetting, Rehearsal and Pseudorehearsal. <i>Connection Science</i>, 1995.</p>
+<p>Eldan, R. &amp; Li, Y. TinyStories: How Small Can Language Models Be and Still Speak Coherent English? <i>arXiv:2305.07759</i>, 2023.</p>
+<p>Sennrich, R. et al. Neural Machine Translation of Rare Words with Subword Units (BPE). <i>ACL</i>, 2016.</p>
+<p>Gu, A. et al. Efficiently Modeling Long Sequences with Structured State Spaces. <i>ICLR</i>, 2022.</p>
+</div>
+
+</div></body></html>

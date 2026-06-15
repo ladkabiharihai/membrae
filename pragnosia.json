@@ -1,0 +1,11 @@
+{
+  "vocab": 16384,
+  "d": 1024,
+  "heads": 16,
+  "layers": 12,
+  "ctx": 256,
+  "tokenizer": "data/bpe16384.json",
+  "train_bin": "big_train",
+  "valid_bin": "big_valid",
+  "ckpt": "pragnosia_168m.pt"
+}
