@@ -58,7 +58,7 @@ def fit_batch(m, td, start_bs, bf16):
             bs = int(bs * 0.7)
     return 1
 
-def main(steps, lr, resume, override_bs):
+def main(steps, lr, resume, override_bs, grow_enabled):
     torch.manual_seed(0); np.random.seed(0)
     cfg = autotune()
     td, vd = H.load(CFG["train_bin"]), H.load(CFG["valid_bin"])
@@ -85,6 +85,7 @@ def main(steps, lr, resume, override_bs):
     actx = torch.autocast("cuda", dtype=torch.bfloat16) if bf16 else torch.autocast("cuda", enabled=False)
     from tqdm import tqdm
     best, t0, run_loss = 1e9, time.time(), None
+    no_improve, grow_patience, max_layers = 0, 5, len(m.blocks) * 2   # grow-as-you-train
     pbar = tqdm(range(1, steps + 1), desc="pragnosia", dynamic_ncols=True, mininterval=4,
                 file=sys.stdout, smoothing=.05)
     for it in pbar:
@@ -118,7 +119,35 @@ def main(steps, lr, resume, override_bs):
             pbar.write(f"  >> it={it:6d}  VAL_PPL={ppl:.2f}  (best {min(best,ppl):.2f})  "
                        f"loss={run_loss:.3f}  ({(time.time()-t0)/3600:.2f}h){star}")
             if ppl < best:
-                best = ppl; torch.save(m.state_dict(), CFG["ckpt"])
+                best = ppl; no_improve = 0; torch.save(m.state_dict(), CFG["ckpt"])
+            else:
+                no_improve += 1
+            # GROW-AS-YOU-TRAIN: plateau = the model has extracted what it can at
+            # this size. If there's VRAM headroom, add a layer (function-preserving,
+            # no loss in quality at the moment of growth) and keep training. The
+            # free-VRAM guard makes this safe -- it never risks the running process.
+            if grow_enabled and no_improve >= grow_patience and len(m.blocks) < max_layers:
+                free = (torch.cuda.mem_get_info()[0] / 2**30) if DEVICE == "cuda" else 99
+                if free <= 4.0:
+                    grow_enabled = False
+                    pbar.write(f"  ## saturated, but only {free:.1f}GB free — growth needs a bigger "
+                               f"GPU; continuing at {len(m.blocks)} layers")
+                else:
+                    import grow as G
+                    cand = G.grow_depth(m, 1).to(DEVICE)
+                    nb = fit_batch(cand, td, cfg["bs"], cfg["bf16"])
+                    if nb >= 2:                                  # the grown model fits -> adopt it
+                        m = cand; CFG["layers"] = len(m.blocks)
+                        json.dump(CFG, open("pragnosia.json", "w"), indent=2)   # keep config in sync for --resume
+                        bs, accum = nb, max(1, 64 // nb)
+                        opt = torch.optim.AdamW(m.parameters(), lr=lr, weight_decay=0.05, betas=(0.9, 0.95))
+                        fwd = torch.compile(m, dynamic=False) if cfg["compile"] else m
+                        torch.save(m.state_dict(), CFG["ckpt"]); no_improve = 0; best = ppl
+                        pbar.write(f"  ## GREW: +1 layer -> {len(m.blocks)} layers, "
+                                   f"{G.n_params(m)/1e6:.0f}M params (saturation detected), bs={bs}")
+                    else:
+                        del cand; torch.cuda.empty_cache(); grow_enabled = False
+                        pbar.write("  ## saturated, but the grown model won't fit — staying at current size")
     pbar.close()
     print(f"[pragnosia] DONE best val ppl={best:.2f} saved {CFG['ckpt']}", flush=True)
 
@@ -128,5 +157,6 @@ if __name__ == "__main__":
     pa.add_argument("--lr", type=float, default=6e-4)
     pa.add_argument("--bs", type=int, default=0)      # 0 = auto-tune from GPU
     pa.add_argument("--resume", action="store_true")
+    pa.add_argument("--no-grow", action="store_true", help="disable grow-as-you-train")
     a = pa.parse_args()
-    main(a.steps, a.lr, a.resume, a.bs)
+    main(a.steps, a.lr, a.resume, a.bs, grow_enabled=not a.no_grow)
