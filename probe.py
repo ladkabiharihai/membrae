@@ -32,8 +32,26 @@ try:
     last = "| " + re.findall(r"it=\s*\d+\s+VAL_PPL=[\d.]+", vp[-1])[-1] if vp else ""
 except Exception:
     pass
+
+@torch.no_grad()
+def _confnll(ids):
+    return F.cross_entropy(m(torch.tensor([ids]))[0, :-1], torch.tensor(ids[1:])).item()
+
+# the abstention boundary -- the model's OWN familiarity, from its confidence on
+# text it has seen (the goal: don't fabricate above this). Same idea as brain.py.
+import numpy as np
+boundary = 4.5
+try:
+    vd = np.fromfile(f"data/{cfg['valid_bin']}.bin", dtype=np.uint16).astype(np.int64)
+    g = torch.Generator().manual_seed(0); nlls = []
+    for _ in range(60):
+        i = int(torch.randint(0, len(vd) - 40, (1,), generator=g)); nlls.append(_confnll(vd[i:i+32].tolist()))
+    nlls.sort(); boundary = nlls[int(0.9 * len(nlls))]
+except Exception:
+    pass
 print(f"Pragnosia {P/1e6:.0f}M | {cfg['layers']} layers, d={cfg['d']}, mlp_mult={cfg.get('mlp_mult',4)}, "
-      f"vocab={cfg['vocab']} | CPU {last}\n")
+      f"vocab={cfg['vocab']} | CPU {last}")
+print(f"abstention boundary (its own familiarity) = {boundary:.1f}  -> answers below it, says 'I don't know' above\n")
 
 @torch.no_grad()
 def conf(p):                                                       # the model's own surprise on the prompt
@@ -51,11 +69,19 @@ def gen(prompt, n=28, rep=1.3):
         ids.append(nx)
     return tok.decode(ids[start:]).strip()
 
+def answer(p):
+    """The goal-behaving response: abstain when the model is too unsure to be
+    honest; otherwise generate. Shows the raw generation too for transparency."""
+    c = conf(p)
+    if c > boundary:
+        return f"[conf {c:.1f} > {boundary:.1f}]  I don't know.   (raw model would say: '{gen(p, n=14)[:60]}...')"
+    return f"[conf {c:.1f}]  {gen(p, n=40)[:130]}"
+
 if len(sys.argv) > 1:
     p = " ".join(sys.argv[1:])
-    print(f"[confidence {conf(p):.1f}]  {p}\n  -> {gen(p, n=48)}")
+    print(f"{p}\n  -> {answer(p)}")
 else:
-    print("=== probes (confidence = its own surprise; lower = more sure) ===")
+    print("=== probes (abstains when its own confidence is too low — the goal) ===")
     for p in ["Once upon a time", "Question: What is 5 plus 7?\nAnswer:", "The capital of Japan is",
               "def add(a, b):", "Photosynthesis is the process by which", "The opposite of hot is"]:
-        print(f"  [conf {conf(p):.1f}] {p!r}\n     -> {gen(p)[:110]}\n")
+        print(f"  {p!r}\n     -> {answer(p)}\n")
