@@ -52,7 +52,8 @@ class Brain(nn.Module):
         self.faculties = U.UnifiedBrain(d=128).to(DEVICE)
         if os.path.exists("unified_brain.pt"):
             self.faculties.load_state_dict(torch.load("unified_brain.pt", map_location=DEVICE, weights_only=True))
-        self.lm = H.SpinAttentionLM(CFG["vocab"], CFG["d"], CFG["heads"], CFG["layers"]).to(DEVICE)
+        self.lm = H.SpinAttentionLM(CFG["vocab"], CFG["d"], CFG["heads"], CFG["layers"],
+                                    mlp_mult=CFG.get("mlp_mult", 4)).to(DEVICE)
         ckpt = lm_ckpt or CFG["ckpt"]
         if os.path.exists(ckpt):
             self.lm.load_state_dict(torch.load(ckpt, map_location=DEVICE, weights_only=True))

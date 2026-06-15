@@ -48,12 +48,13 @@ class CausalSelfAttention(nn.Module):
         return self.proj(y.transpose(1, 2).contiguous().view(B, T, C))
 
 class Block(nn.Module):
-    """Standard transformer block (attention + MLP) -- the quality engine."""
-    def __init__(self, d, n_head):
+    """Standard transformer block (attention + MLP) -- the quality engine.
+    mlp_mult lets the MLP hidden width grow (width growth survives --resume)."""
+    def __init__(self, d, n_head, mlp_mult=4):
         super().__init__()
         self.ln1 = nn.LayerNorm(d); self.attn = CausalSelfAttention(d, n_head)
         self.ln2 = nn.LayerNorm(d)
-        self.mlp = nn.Sequential(nn.Linear(d, 4 * d), nn.GELU(), nn.Linear(4 * d, d))
+        self.mlp = nn.Sequential(nn.Linear(d, mlp_mult * d), nn.GELU(), nn.Linear(mlp_mult * d, d))
     def forward(self, x):
         x = x + self.attn(self.ln1(x))
         x = x + self.mlp(self.ln2(x))
@@ -84,12 +85,12 @@ class SpinCarrier(nn.Module):
 
 class SpinAttentionLM(nn.Module):
     """Attention-dominant for quality + one spin carrier for cross-token state."""
-    def __init__(self, vocab=VOC, d=512, n_head=8, n_layer=3):
+    def __init__(self, vocab=VOC, d=512, n_head=8, n_layer=3, mlp_mult=4):
         super().__init__()
-        self.d = d
+        self.d = d; self.mlp_mult = mlp_mult; self.n_head = n_head
         self.emb = nn.Embedding(vocab, d)
         self.pos = nn.Embedding(4096, d)
-        self.blocks = nn.ModuleList([Block(d, n_head) for _ in range(n_layer)])
+        self.blocks = nn.ModuleList([Block(d, n_head, mlp_mult) for _ in range(n_layer)])
         self.carrier = SpinCarrier(d)
         self.lnf = nn.LayerNorm(d)
         self.head = nn.Linear(d, vocab, bias=False)

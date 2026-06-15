@@ -62,7 +62,7 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     torch.manual_seed(0); np.random.seed(0)
     cfg = autotune()
     td, vd = H.load(CFG["train_bin"]), H.load(CFG["valid_bin"])
-    m = H.SpinAttentionLM(VOC, CFG["d"], CFG["heads"], CFG["layers"]).to(DEVICE)
+    m = H.SpinAttentionLM(VOC, CFG["d"], CFG["heads"], CFG["layers"], mlp_mult=CFG.get("mlp_mult", 4)).to(DEVICE)
     p = sum(x.numel() for x in m.parameters())
     if resume and os.path.exists(CFG["ckpt"]):
         m.load_state_dict(torch.load(CFG["ckpt"], map_location=DEVICE, weights_only=True)); print("resumed", flush=True)
@@ -85,7 +85,8 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     actx = torch.autocast("cuda", dtype=torch.bfloat16) if bf16 else torch.autocast("cuda", enabled=False)
     from tqdm import tqdm
     best, t0, run_loss = 1e9, time.time(), None
-    no_improve, grow_patience, max_layers = 0, 5, len(m.blocks) * 2   # grow-as-you-train
+    no_improve, grow_patience, grow_count = 0, 5, 0                   # grow-as-you-train
+    max_layers, max_mlp_mult = 48, 12                                # safety caps; VRAM is the real limit
     pbar = tqdm(range(1, steps + 1), desc="pragnosia", dynamic_ncols=True, mininterval=4,
                 file=sys.stdout, smoothing=.05)
     for it in pbar:
@@ -123,31 +124,38 @@ def main(steps, lr, resume, override_bs, grow_enabled):
             else:
                 no_improve += 1
             # GROW-AS-YOU-TRAIN: plateau = the model has extracted what it can at
-            # this size. If there's VRAM headroom, add a layer (function-preserving,
-            # no loss in quality at the moment of growth) and keep training. The
-            # free-VRAM guard makes this safe -- it never risks the running process.
-            if grow_enabled and no_improve >= grow_patience and len(m.blocks) < max_layers:
+            # this size. With VRAM headroom, grow -- ALTERNATING depth (add a layer)
+            # and width (widen every MLP), function-preserving (no quality loss at
+            # growth), and keep training. So from a small start it auto-scales into a
+            # balanced larger brain, sized by the data and the GPU. The free-VRAM
+            # guard + fit check make it safe -- it never risks the running process,
+            # and it stops when the card is full (VRAM is the real cap).
+            if grow_enabled and no_improve >= grow_patience:
+                import grow as G
                 free = (torch.cuda.mem_get_info()[0] / 2**30) if DEVICE == "cuda" else 99
-                if free <= 4.0:
+                can_depth = len(m.blocks) < max_layers; can_width = m.mlp_mult < max_mlp_mult
+                want_width = grow_count % 2 == 1                        # alternate for balance
+                mode = ("width" if (want_width and can_width) or not can_depth else "depth") if (can_depth or can_width) else None
+                if free <= 4.0 or mode is None:
                     grow_enabled = False
-                    pbar.write(f"  ## saturated, but only {free:.1f}GB free — growth needs a bigger "
-                               f"GPU; continuing at {len(m.blocks)} layers")
+                    why = f"only {free:.1f}GB free" if free <= 4.0 else "at growth cap"
+                    pbar.write(f"  ## saturated, {why} — staying at {len(m.blocks)}L mlp_mult={m.mlp_mult} "
+                               f"({G.n_params(m)/1e6:.0f}M)")
                 else:
-                    import grow as G
-                    cand = G.grow_depth(m, 1).to(DEVICE)
+                    cand = (G.grow_depth(m, 1) if mode == "depth" else G.grow_width(m, 1)).to(DEVICE)
                     nb = fit_batch(cand, td, cfg["bs"], cfg["bf16"])
-                    if nb >= 2:                                  # the grown model fits -> adopt it
-                        m = cand; CFG["layers"] = len(m.blocks)
-                        json.dump(CFG, open("pragnosia.json", "w"), indent=2)   # keep config in sync for --resume
+                    if nb >= 2:                                        # the grown model fits -> adopt it
+                        m = cand; CFG["layers"] = len(m.blocks); CFG["mlp_mult"] = m.mlp_mult
+                        json.dump(CFG, open("pragnosia.json", "w"), indent=2)   # in sync for --resume
                         bs, accum = nb, max(1, 64 // nb)
                         opt = torch.optim.AdamW(m.parameters(), lr=lr, weight_decay=0.05, betas=(0.9, 0.95))
                         fwd = torch.compile(m, dynamic=False) if cfg["compile"] else m
-                        torch.save(m.state_dict(), CFG["ckpt"]); no_improve = 0; best = ppl
-                        pbar.write(f"  ## GREW: +1 layer -> {len(m.blocks)} layers, "
-                                   f"{G.n_params(m)/1e6:.0f}M params (saturation detected), bs={bs}")
+                        torch.save(m.state_dict(), CFG["ckpt"]); no_improve = 0; best = ppl; grow_count += 1
+                        pbar.write(f"  ## GREW ({mode}) -> {len(m.blocks)}L mlp_mult={m.mlp_mult}  "
+                                   f"{G.n_params(m)/1e6:.0f}M params (saturation), bs={bs}")
                     else:
                         del cand; torch.cuda.empty_cache(); grow_enabled = False
-                        pbar.write("  ## saturated, but the grown model won't fit — staying at current size")
+                        pbar.write(f"  ## saturated, {mode} growth won't fit — staying at current size")
     pbar.close()
     print(f"[pragnosia] DONE best val ppl={best:.2f} saved {CFG['ckpt']}", flush=True)
 

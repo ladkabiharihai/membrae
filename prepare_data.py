@@ -155,9 +155,9 @@ def build(params, laptop):
     print(f"train tokens ~{total/1e9:.2f}B  (curated {cur_tok/1e9:.2f}B + web {wtok/1e9:.2f}B + "
           f"story {stok/1e9:.2f}B = {100*stok/max(total,1):.0f}%), valid {vtok/1e6:.1f}M", flush=True)
 
-    json.dump({"vocab": VOCAB, "d": cfg["d"], "heads": cfg["heads"], "layers": cfg["layers"], "ctx": 256,
-               "tokenizer": "data/bpe.json", "train_bin": "big_train", "valid_bin": "big_valid",
-               "ckpt": "pragnosia.pt"}, open("pragnosia.json", "w"), indent=2)
+    json.dump({"vocab": VOCAB, "d": cfg["d"], "heads": cfg["heads"], "layers": cfg["layers"],
+               "mlp_mult": 4, "ctx": 256, "tokenizer": "data/bpe.json", "train_bin": "big_train",
+               "valid_bin": "big_valid", "ckpt": "pragnosia.pt"}, open("pragnosia.json", "w"), indent=2)
     print("wrote pragnosia.json", flush=True)
 
 if __name__ == "__main__":
