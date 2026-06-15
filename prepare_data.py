@@ -1,31 +1,52 @@
 """
-Build the REBALANCED corpus for Pragnosia: stories only ~10%, the rest refined
-world-knowledge + reasoning + multi-turn chat + mathematics + coding + grammar.
-Trains BPE-16384, tokenizes to big_train/big_valid, writes pragnosia.json.
+Scale-aware corpus builder for Pragnosia. You give it a target model size; it
+sizes the architecture (writes pragnosia.json), computes a Chinchilla-style token
+budget (~18 tokens/param), pulls the curated reasoning/knowledge/math/code/chat/
+grammar sets, and STREAMS the remainder from FineWeb-Edu (high-quality web text) up
+to the budget. Stories are capped at ~10%. Tokenization is incremental, so it can
+build anything from ~200M tokens (laptop) to tens of billions (for a 3B model on a
+big machine) without holding the corpus in memory.
 
-  python3 prepare_data.py
+  python3 prepare_data.py                       # default 176M model (~3.5B-token budget)
+  python3 prepare_data.py --params 176e6 --laptop   # small ~200M-token build for a laptop
+  python3 prepare_data.py --params 1e9          # ~1B model  (~18B tokens)
+  python3 prepare_data.py --params 3e9          # ~3B model  (~54B tokens)
 """
-import json, os, numpy as np
+import argparse, json, os, numpy as np
 from datasets import load_dataset
 from tokenizers import Tokenizer, models, trainers, pre_tokenizers, decoders
 
-VOCAB = 16384
-RAW = "data/corpus_big.txt"
-SEP = "\n<|endoftext|>\n"
+SEP = "\n<|endoftext|>\n"; RAW_SAMPLE = "data/tok_sample.txt"
+
+def size_for(params):
+    """Pick (d, heads, layers, vocab) so the model ~= target params, and a token budget."""
+    table = [   # (max_params, d, heads, layers, vocab)
+        (3.0e8, 1024, 16, 12, 16384),    # ~176M
+        (7.0e8, 1536, 16, 16, 32768),    # ~500M
+        (1.5e9, 2048, 16, 20, 32768),    # ~1B
+        (4.0e9, 2560, 20, 32, 32768),    # ~3B
+    ]
+    for cap, d, h, l, v in table:
+        if params <= cap:
+            return dict(d=d, heads=h, layers=l, vocab=v, target_tokens=int(18 * params))
+    d, h, l, v = table[-1][1:]
+    return dict(d=d, heads=h, layers=l, vocab=v, target_tokens=int(18 * params))
 
 def qa(q, a, ctx=""):
     return f"Question: {q.strip()}\n" + (f"{ctx.strip()}\n" if ctx.strip() else "") + f"Answer: {a.strip()}"
 
-def collect():
-    """Yield (category, text) for every non-story document, capped per source."""
-    # --- world knowledge: Simple Wikipedia (all of it) ---
+def curated(cap_each=None):
+    """Yield (category, text) from the curated, high-signal sources."""
+    def capped(it):
+        for i, x in enumerate(it):
+            if cap_each and i >= cap_each: break
+            yield x
     if os.path.exists("data/wiki_simple.txt"):
         for c in open("data/wiki_simple.txt").read().split("<|endoftext|>"):
             if len(c.strip()) > 200: yield "wiki", c.strip()
-    # --- reasoning: OpenOrca (slice) + Alpaca + Dolly ---
     try:
-        for r in load_dataset("Open-Orca/OpenOrca", split="train[:120000]"):
-            if r["question"] and r["response"]: yield "reason", qa(r["question"], r["response"])
+        for r in capped(load_dataset("Open-Orca/OpenOrca", split="train", streaming=True)):
+            if r.get("question") and r.get("response"): yield "reason", qa(r["question"], r["response"])
     except Exception as e: print("skip orca", str(e)[:40])
     for repo, im, ic, om in [("tatsu-lab/alpaca","instruction","input","output"),
                              ("databricks/databricks-dolly-15k","instruction","context","response")]:
@@ -33,86 +54,116 @@ def collect():
             for r in load_dataset(repo, split="train"):
                 if r[im] and r[om]: yield "reason", qa(r[im], r[om], r.get(ic) or "")
         except Exception as e: print("skip", repo, str(e)[:40])
-    # --- mathematics: GSM8K (with reasoning) + Orca-Math ---
     try:
-        for r in load_dataset("openai/gsm8k","main",split="train"):
-            yield "math", qa(r["question"], r["answer"])
+        for r in load_dataset("openai/gsm8k","main",split="train"): yield "math", qa(r["question"], r["answer"])
     except Exception as e: print("skip gsm8k", str(e)[:40])
     try:
-        for r in load_dataset("microsoft/orca-math-word-problems-200k", split="train[:120000]"):
+        for r in capped(load_dataset("microsoft/orca-math-word-problems-200k", split="train")):
             yield "math", qa(r["question"], r["answer"])
     except Exception as e: print("skip orca-math", str(e)[:40])
-    # --- coding ---
     for repo in ["sahil2801/CodeAlpaca-20k","iamtarun/python_code_instructions_18k_alpaca"]:
         try:
             for r in load_dataset(repo, split="train"):
                 if r.get("output"): yield "code", qa(r["instruction"], r["output"], r.get("input") or "")
         except Exception as e: print("skip", repo, str(e)[:40])
-    # --- multi-turn chat: OpenAssistant (reconstruct best conversation thread) ---
     try:
-        ds = load_dataset("OpenAssistant/oasst1", split="train")
-        msgs, kids = {}, {}
-        for r in ds:
-            msgs[r["message_id"]] = r
-            kids.setdefault(r["parent_id"], []).append(r["message_id"])
+        ds = load_dataset("OpenAssistant/oasst1", split="train"); msgs, kids = {}, {}
+        for r in ds: msgs[r["message_id"]]=r; kids.setdefault(r["parent_id"],[]).append(r["message_id"])
         for root in kids.get(None, []):
             conv, cur = [], root
             while cur is not None:
-                m = msgs[cur]
-                role = "<user>" if m["role"] == "prompter" else "<assistant>"
-                conv.append(f"{role} {' '.join(m['text'].split())}")
-                ch = kids.get(cur, [])
-                ch = sorted(ch, key=lambda c: (msgs[c]["rank"] if msgs[c]["rank"] is not None else 9))
-                cur = ch[0] if ch else None
-            if len(conv) >= 2: yield "chat", "\n".join(conv)
+                m=msgs[cur]; conv.append(("<user> " if m["role"]=="prompter" else "<assistant> ")+" ".join(m["text"].split()))
+                ch=sorted(kids.get(cur,[]),key=lambda c:(msgs[c]["rank"] if msgs[c]["rank"] is not None else 9)); cur=ch[0] if ch else None
+            if len(conv)>=2: yield "chat", "\n".join(conv)
     except Exception as e: print("skip oasst", str(e)[:40])
-    # --- english grammar: CoEdit (correction pairs) ---
     try:
         for r in load_dataset("grammarly/coedit", split="train"):
-            if r.get("src") and r.get("tgt"):
-                yield "grammar", f"Fix the grammar: {r['src'].strip()}\nCorrected: {r['tgt'].strip()}"
+            if r.get("src") and r.get("tgt"): yield "grammar", f"Fix the grammar: {r['src'].strip()}\nCorrected: {r['tgt'].strip()}"
     except Exception as e: print("skip coedit", str(e)[:40])
 
-def build_raw():
-    counts, chars = {}, 0
-    with open(RAW, "w") as f:
-        for cat, text in collect():
-            f.write(text + SEP); counts[cat] = counts.get(cat, 0) + 1; chars += len(text)
-        # stories last: add exactly ~10% of the final corpus by characters
-        story_budget = chars / 9.0           # stories will be 1/(9+1) = 10%
-        used = 0; sc = 0
+def web_stream():
+    """High-quality educational web text, streamed (scales to ~1.3T tokens)."""
+    ds = load_dataset("HuggingFaceFW/fineweb-edu", "sample-10BT", split="train", streaming=True)
+    for r in ds:
+        t = (r.get("text") or "").strip()
+        if len(t) > 300: yield "web", t
+
+def build(params, laptop):
+    cfg = size_for(params); VOCAB = cfg["vocab"]; target = cfg["target_tokens"]
+    if laptop: target = min(target, 200_000_000)
+    approx_tok = lambda s: len(s) // 4                 # ~4 chars/token estimate
+    print(f"target model ~{params/1e6:.0f}M params -> d={cfg['d']} layers={cfg['layers']} "
+          f"vocab={VOCAB}; token budget ~{target/1e9:.2f}B", flush=True)
+
+    # 1. tokenizer: train on a representative SAMPLE (curated + a little web)
+    if not os.path.exists("data/bpe.json"):
+        with open(RAW_SAMPLE, "w") as f:
+            chars = 0
+            for _, t in curated(cap_each=20000):
+                f.write(t + SEP); chars += len(t)
+                if chars > 300_000_000: break
+            wc = 0
+            for _, t in web_stream():
+                f.write(t + SEP); wc += len(t)
+                if wc > 200_000_000: break
+        tok = Tokenizer(models.BPE(unk_token=None))
+        tok.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=True); tok.decoder = decoders.ByteLevel()
+        tok.train([RAW_SAMPLE], trainers.BpeTrainer(vocab_size=VOCAB, special_tokens=["<|endoftext|>"]))
+        tok.save("data/bpe.json"); os.remove(RAW_SAMPLE)
+        print(f"trained BPE-{VOCAB}", flush=True)
+    tok = Tokenizer.from_file("data/bpe.json")
+
+    # 2. incremental tokenization to bins, stories capped at 10%, web fills to budget
+    def write_stream(path, source, budget):
+        n = 0
+        with open(f"data/{path}.bin", "wb") as f:
+            for cat, text in source():
+                ids = np.array(tok.encode(text).ids + [0], dtype=np.uint16)
+                f.write(ids.tobytes()); n += len(ids)
+                if n >= budget: break
+        return n
+    counts = {}
+    # curated first (a few B tokens at most), then web to fill, then stories ≤10%
+    cur_tok = 0
+    with open("data/big_train.bin", "wb") as f:
+        for cat, text in curated():
+            ids = np.array(tok.encode(text).ids + [0], dtype=np.uint16); f.write(ids.tobytes())
+            cur_tok += len(ids); counts[cat] = counts.get(cat, 0) + 1
+            if cur_tok >= 0.45 * target: break          # cap curated at ~45% of budget
+        story_budget = 0.10 * target; web_budget = target - cur_tok - story_budget
+        wtok = 0
+        for cat, text in web_stream():
+            ids = np.array(tok.encode(text).ids + [0], dtype=np.uint16); f.write(ids.tobytes())
+            wtok += len(ids); counts["web"] = counts.get("web", 0) + 1
+            if wtok >= web_budget: break
+        stok = 0
         if os.path.exists("data/ts_big.txt"):
             for c in open("data/ts_big.txt").read().split("<|endoftext|>"):
                 c = c.strip()
                 if not c: continue
-                f.write(c + SEP); used += len(c); sc += 1
-                if used >= story_budget: break
-        counts["story"] = sc
-    print("documents per category:", counts, flush=True)
-    print(f"non-story chars={chars/1e6:.0f}M  story chars={used/1e6:.0f}M "
-          f"(stories ~{100*used/(chars+used):.0f}%)", flush=True)
+                ids = np.array(tok.encode(c).ids + [0], dtype=np.uint16); f.write(ids.tobytes())
+                stok += len(ids); counts["story"] = counts.get("story", 0) + 1
+                if stok >= story_budget: break
+    total = cur_tok + wtok + stok
+    # small held-out valid from the web stream (fresh docs)
+    vtok = 0
+    with open("data/big_valid.bin", "wb") as f:
+        for cat, text in web_stream():
+            ids = np.array(tok.encode(text).ids + [0], dtype=np.uint16); f.write(ids.tobytes()); vtok += len(ids)
+            if vtok > 1_000_000: break
+    print(f"built: {counts}", flush=True)
+    print(f"train tokens ~{total/1e9:.2f}B  (curated {cur_tok/1e9:.2f}B + web {wtok/1e9:.2f}B + "
+          f"story {stok/1e9:.2f}B = {100*stok/max(total,1):.0f}%), valid {vtok/1e6:.1f}M", flush=True)
 
-def tokenize():
-    tok = Tokenizer(models.BPE(unk_token=None))
-    tok.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=True)
-    tok.decoder = decoders.ByteLevel()
-    tok.train([RAW], trainers.BpeTrainer(vocab_size=VOCAB, special_tokens=["<|endoftext|>"]))
-    tok.save("data/bpe16384.json")
-    docs = [c.strip() for c in open(RAW).read().split("<|endoftext|>") if c.strip()]
-    rng = np.random.default_rng(0); rng.shuffle(docs)
-    for name, chunk in [("big_valid", docs[:3000]), ("big_train", docs[3000:])]:
-        ids = []
-        for c in chunk: ids.extend(tok.encode(c).ids + [0])
-        np.array(ids, dtype=np.uint16).tofile(f"data/{name}.bin")
-        print(name, f"{len(ids):,}", "tokens", flush=True)
-
-def write_config():
-    json.dump({"vocab": VOCAB, "d": 1024, "heads": 16, "layers": 12, "ctx": 256,
-               "tokenizer": "data/bpe16384.json", "train_bin": "big_train",
-               "valid_bin": "big_valid", "ckpt": "pragnosia_168m.pt"},
-              open("pragnosia.json", "w"), indent=2)
+    json.dump({"vocab": VOCAB, "d": cfg["d"], "heads": cfg["heads"], "layers": cfg["layers"], "ctx": 256,
+               "tokenizer": "data/bpe.json", "train_bin": "big_train", "valid_bin": "big_valid",
+               "ckpt": "pragnosia.pt"}, open("pragnosia.json", "w"), indent=2)
     print("wrote pragnosia.json", flush=True)
 
 if __name__ == "__main__":
-    build_raw(); tokenize(); write_config()
+    pa = argparse.ArgumentParser()
+    pa.add_argument("--params", type=float, default=176e6, help="target model size (e.g. 1e9, 3e9)")
+    pa.add_argument("--laptop", action="store_true", help="cap the build at ~200M tokens")
+    a = pa.parse_args()
+    build(a.params, a.laptop)
     print("DONE.", flush=True)

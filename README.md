@@ -32,12 +32,26 @@ regenerable). Reproduce them with `prepare_data.py` then `train_pragnosia.py`.
 
 ## Quick start
 ```bash
-python3 prepare_data.py                 # build corpus + tokenizer (downloads datasets)
-python3 train_pragnosia.py              # train (GPU-adaptive, resumable: --resume)
+python3 prepare_data.py --laptop        # small ~200M-token corpus for a laptop
+python3 train_pragnosia.py              # train (GPU-adaptive, OOM-safe, resumable: --resume)
 python3 brain.py test                   # full self-test: every faculty + language
 python3 brain.py chat                   # talk to it — it decides answer/seek/abstain/learn itself
 python3 brain.py teach "a new fact"     # teach it persistently (it grows by itself)
 ```
+
+## Scaling (one knob)
+The pipeline is scale-aware. Tell `prepare_data.py` the target model size; it sizes
+the architecture (writes `pragnosia.json`), computes a ~18-tokens/param budget, and
+streams the data from FineWeb-Edu (on top of the curated reasoning/math/code/chat/
+grammar sets), stories capped at 10%:
+```bash
+python3 prepare_data.py --params 176e6  #  ~176M model,  ~3.2B-token budget
+python3 prepare_data.py --params 1e9    #  ~1.1B model,  ~18B-token budget
+python3 prepare_data.py --params 3e9    #  ~2.6B model,  ~54B-token budget
+```
+`train_pragnosia.py` then auto-adapts batch / precision / accumulation to whatever
+GPU it runs on (OOM-safe), so the same commands train a 176M model on a laptop or a
+multi-billion-parameter model on an H100. Resume on any card with `--resume`.
 
 ## Architecture
 Reasoning faculties stay **pure spin** (the brain-swap invariant holds where it's
