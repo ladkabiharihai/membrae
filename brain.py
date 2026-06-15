@@ -73,6 +73,28 @@ class Brain(nn.Module):
         self.abstain_threshold = self._calibrate()  # familiarity boundary (own confidence)
         self.match_threshold = self._calibrate_match()  # what counts as a memory match
 
+    # ================= NEUROGENESIS: grow capacity on demand =================
+    def grow(self, mode="depth", **kw):
+        """Add capacity (function-preserving) when the brain is saturated, then
+        re-derive its scales for the larger self. Zero forgetting at the moment
+        of growth -- the grown brain computes exactly what it did before."""
+        import grow as G
+        before = G.n_params(self.lm)
+        self.lm = (G.grow_depth(self.lm, **kw) if mode == "depth" else G.grow_width(self.lm, **kw)).to(DEVICE)
+        self.recalibrate()
+        return before, G.n_params(self.lm)
+
+    def saturated(self, fact):
+        """The brain's OWN judgement that it is full: after honestly trying to
+        learn `fact`, it is still surprised by it AND its retention is slipping.
+        Signals are the model's; the bar is its own calibrated boundary."""
+        import grow as G
+        pr, fin, af, al = self.faculties.explore_and_learn(
+            __import__("torch").randint(0, U.M, (U.NE,), device=DEVICE))
+        forgetting = abs(af - al)
+        before = self._nll(fact); self.teach(fact, max_steps=20); after = self._nll(fact)
+        return G.should_grow(forgetting, after, self.abstain_threshold), after, before
+
     def _token_self_information(self):
         """Word importance derived from the data the model saw: rare tokens carry
         more information (-log freq) than frequent function words. No stopword

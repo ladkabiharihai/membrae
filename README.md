@@ -21,6 +21,7 @@ data and re-derived as the brain grows).
 | `s6_hybrid.py` | The spin–attention hybrid language model (architecture + train/gen/brain-swap). |
 | `unified_brain.py` | The proven toy faculties (reasoning, P5/P6 abstention, seek, exact accumulation, alive loop, omni) + their 14-check self-test. |
 | `train_pragnosia.py` | GPU-adaptive trainer — auto-tunes batch / precision / accumulation to the card, OOM-safe, resumable. |
+| `grow.py` | **Neurogenesis on demand** — function-preserving growth (add neurons/layers) so the brain expands its own capacity when saturated, with zero forgetting at the moment of growth. `Brain.grow()` wires it in. |
 | `prepare_data.py` | Builds the rebalanced corpus (knowledge + reasoning + math + code + chat + grammar, stories ≤10%) and BPE tokenizer. |
 | `pragnosia.json` | Model config (size, vocab, data, checkpoint). Edit to scale the brain. |
 | `paper/` | The research paper (`paper.html`, `make_figures.py`, figures) → `Pragnosia_paper.pdf`. |
