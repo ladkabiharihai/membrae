@@ -17,13 +17,12 @@ data and re-derived as the brain grows).
 ## What's here
 | File | What it is |
 |---|---|
-| `brain.py` | **The single wired object** (Pragnosia): all faculties + the hybrid language model + autonomous controller, self-calibration, continual learning. CLI: `test` / `chat` / `ask` / `teach`. |
-| `s6_hybrid.py` | The spin–attention hybrid language model (architecture + train/gen/brain-swap). |
-| `unified_brain.py` | The proven toy faculties (reasoning, P5/P6 abstention, seek, exact accumulation, alive loop, omni) + their 14-check self-test. |
+| `brain.py` | **The whole brain, one file** (Pragnosia): all faculties + the hybrid language model + autonomous controller, self-calibration, continual learning, honesty by self-consistency, curiosity that asks its own questions, internet look-up, self-growth. Everything you *do* with the brain is a mode here: `test` / `chat` / `child` / `ask` / `teach` / `probe`. |
+| `s6_hybrid.py` | The brain's **language organ** — the spin–attention hybrid language model (also used by the trainer). |
+| `unified_brain.py` | The brain's **reasoning organs** — the proven faculties (reasoning, P5/P6 abstention, seek, exact accumulation, alive loop, omni) + their 14-check self-test. |
+| `grow.py` | **Neurogenesis** — function-preserving growth the brain fires itself when it saturates; the trainer also grows during training on plateau. |
 | `train_pragnosia.py` | GPU-adaptive trainer — auto-tunes batch / precision / accumulation to the card, OOM-safe, resumable. |
-| `probe.py` | **Safe CPU test while training** — `python3 probe.py` (or `probe.py "your prompt"`). Forces CPU (never touches the training GPU), snapshots the live checkpoint, loads it at whatever size it has grown to, and shows generations + the model's own confidence. |
-| `grow.py` | **Neurogenesis on demand** — function-preserving growth (add neurons/layers) so the brain expands its own capacity when saturated, with zero forgetting at the moment of growth. `Brain.grow()` wires it into chat; `train_pragnosia.py` grows *during* training when validation plateaus (memory-guarded). |
-| `prepare_data.py` | Builds the rebalanced corpus (knowledge + reasoning + math + code + chat + grammar, stories ≤10%) and BPE tokenizer. |
+| `prepare_data*.py` | Build the rebalanced corpus (knowledge + reasoning + math + code + chat + grammar, stories ≤10%) and the digit-aware BPE tokenizer (`_fast` = parallel builder). |
 | `pragnosia.json` | Model config (size, vocab, data, checkpoint). Edit to scale the brain. |
 | `paper/` | The research paper (`paper.html`, `make_figures.py`, figures) → `Pragnosia_paper.pdf`. |
 | `site/` | Animated explainer site (`index.html`) + honest LLM comparison (`compare.html`). |
@@ -38,7 +37,9 @@ python3 prepare_data.py --laptop        # small ~200M-token corpus for a laptop
 python3 train_pragnosia.py              # train (GPU-adaptive, OOM-safe, resumable: --resume)
 python3 brain.py test                   # full self-test: every faculty + language
 python3 brain.py chat                   # talk to it — it decides answer/seek/abstain/learn itself
+python3 brain.py child                  # raise it like a child: it wonders, looks things up, learns, grows
 python3 brain.py teach "a new fact"     # teach it persistently (it grows by itself)
+python3 brain.py probe "any prompt"     # quick one-shot decision trace
 ```
 
 ## Scaling (one knob)

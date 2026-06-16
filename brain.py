@@ -16,12 +16,14 @@ separate script anymore.
     seek       -> retrieve from memory store when unsure              [P7 on language]
     teach      -> online learning + self-replay, persistent, low-forgetting [alive on language]
 
-Modes:
+Modes (everything is here -- no separate scripts):
   test    full self-test: ALL faculties + language ppl + abstention + teach/recall
-  chat    interactive: abstains, recalls taught facts, remembers in-session
-  ask     one-shot question (abstains if unsure / seeks memory)
+  chat    interactive: it decides answer / seek / abstain / learn for itself
+  child   raise it like a child: it observes, wonders its OWN questions, looks up what
+          it doesn't know (Wikipedia), learns it, and grows itself when it saturates
+  ask     one-shot question (honest: abstains when it doesn't really know)
   teach   teach a fact persistently, verify recall + retention
-  train   continue training the language faculty; faculties stay wired & checked
+  probe   quick non-interactive decision trace on a few prompts (or one you pass)
 ================================================================================
 """
 import argparse, json, math, os, time
@@ -628,10 +630,57 @@ def self_test(brain):
     print(f"  {npass}/14 faculties + language(ppl {ppl:.0f}) + abstain + teach/recall = WIRED")
     print("=" * 70)
 
-# ============================ CLI ============================
+# ============================ CLI (all modes live here) ============================
+def _chat_loop(brain):
+    print("Brain ready (autonomous: it decides answer/seek/abstain/learn, and remembers")
+    print("what it learns across sessions). type 'quit' to exit.\n")
+    grew = False
+    while True:
+        try: msg = input("you> ").strip()
+        except (EOFError, KeyboardInterrupt): break
+        if msg.lower() in ("quit", "exit"): break
+        reply, decision = brain.respond(msg)
+        if decision.startswith("learn"): grew = True
+        print(f"bot> {reply}   [decided: {decision}]\n")
+    if grew: brain.persist(); print("\n[saved what I learned this session]")
+
+def _child_loop(brain):
+    print(f"Pragnosia is awake ({brain.n_params():,} params). Tell it things, ask it")
+    print("questions, or press Enter to let it follow its own train of thought. 'quit' saves & exits.\n")
+    def show(tr):
+        if tr.get("learned"):          print("   · took it in (new content)")
+        if tr.get("wonders"):          print(f"   · it WONDERS: {tr['wonders']}")
+        if tr.get("knows"):            print(f"   · it already knows: {tr['knows'][:90]}")
+        if tr.get("didnt_know"):       print("   · it did NOT know -> went to look it up")
+        if tr.get("learned_answer"):   print(f"   · learned [{tr.get('source')}]: {tr['learned_answer']}")
+        if tr.get("pursuing"):         print(f"   · chasing its own question: {tr['pursuing']}")
+        if tr.get("learned_from_web"): print(f"   · read & learned: {tr['learned_from_web']}")
+        if tr.get("now_wonders"):      print(f"   · now it WONDERS: {tr['now_wonders']}")
+        if tr.get("couldnt_find"):     print(f"   · couldn't find anything on: {tr['couldnt_find']}")
+        if tr.get("grew"):             print(f"   · !! it GREW its brain: {tr['grew']}")
+        if tr.get("idle"):             print(f"   · {tr['idle']}")
+    while True:
+        try: msg = input("you> ").strip()
+        except (EOFError, KeyboardInterrupt): break
+        if msg.lower() in ("quit", "exit"): break
+        if not msg:
+            print("Pragnosia> (thinking on my own ...)"); show(brain.explore()); print()
+        elif msg.endswith("?"):
+            r, d = brain.respond(msg); print(f"Pragnosia> {r}\n   · [{d}]\n")
+        else:
+            print("Pragnosia> (took that in)"); show(brain.think(msg)); print()
+    brain.persist(); print("\n[saved what it learned this session]")
+
+def _probe(brain, prompts):
+    print(f"Pragnosia {brain.n_params()/1e6:.0f}M on {DEVICE}  |  knows>={brain.consistency_min:.2f}  "
+          f"new>{brain.novelty_min:.2f}\n")
+    for p in prompts:
+        r, d = brain.respond(p)
+        print(f"  PROMPT: {p!r}\n    reply: {r[:140]}\n    [{d}]\n")
+
 def main():
     pa = argparse.ArgumentParser()
-    pa.add_argument("mode", choices=["test", "chat", "ask", "teach"])
+    pa.add_argument("mode", choices=["test", "chat", "child", "ask", "teach", "probe"])
     pa.add_argument("text", nargs="*")
     a = pa.parse_args()
     brain = Brain()
@@ -643,19 +692,14 @@ def main():
         fact = " ".join(a.text)
         brain.teach(fact, persist=True); print(f"taught (persisted): {fact}")
         print("recall:", brain.ask(fact.split(" is")[0] + "?" if " is" in fact else fact))
-    else:  # chat -- fully autonomous: brain decides learn/answer/seek/abstain
-        print("Brain ready (autonomous: it decides learn/answer/seek/abstain, and")
-        print("remembers what it learns across sessions). type 'quit' to exit.\n")
-        grew = False
-        while True:
-            try: msg = input("you> ").strip()
-            except (EOFError, KeyboardInterrupt): break
-            if msg.lower() in ("quit", "exit"): break
-            reply, decision = brain.respond(msg)
-            if decision.startswith("learn"): grew = True
-            print(f"bot> {reply}   [decided: {decision}]\n")
-        if grew:
-            brain.persist(); print("\n[saved what I learned this session]")
+    elif a.mode == "probe":
+        _probe(brain, [" ".join(a.text)] if a.text else
+               ["What is the capital of France?", "What is my phone number?",
+                "def add(a, b):", "Once upon a time"])
+    elif a.mode == "child":
+        _child_loop(brain)
+    else:
+        _chat_loop(brain)
 
 if __name__ == "__main__":
     main()

@@ -49,11 +49,16 @@ tail -f pragnosia_train.log
 
 ## STEP 3 — Use it  (after training; this is the part you asked for)
 The brain decides everything itself; nothing is hardcoded.
+Everything you do with the brain is a mode of the ONE file `brain.py` (no other scripts):
 ```
 python3 brain.py test                          # full self-test: every faculty + language
 python3 brain.py chat                           # talk to it (it decides: answer/seek/abstain/learn)
+python3 brain.py child                          # raise it like a child: it wonders its own
+                                                #   questions, looks up what it doesn't know
+                                                #   (Wikipedia), learns it, and grows when saturated
 python3 brain.py ask "What is the capital of France?"
 python3 brain.py teach "Mount Everest is the tallest mountain."   # teaches + PERSISTS
+python3 brain.py probe "any prompt"             # quick one-shot decision trace
 ```
 
 ## STEP 4 — It grows by itself (NO retraining, ever)
