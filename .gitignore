@@ -1,6 +1,7 @@
 # trained weights & caches (regenerate via training) — too large for git
 *.pt
 pragnosia_id_*.pt
+!unified_brain.pt          # EXCEPTION: tiny (1.2MB), essential faculties, stable — keep in git so 14/14 travels
 
 # data: corpora, tokenizers, token bins, caches (regenerate via prepare_data.py)
 data/

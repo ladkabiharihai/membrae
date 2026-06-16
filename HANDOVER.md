@@ -133,11 +133,11 @@ Caches that **regenerate themselves** on first run (don't need to travel): `prag
 
 ### Files that MUST travel (gitignored → they do NOT come through `git pull`, and do NOT regenerate)
 - **`pragnosia.pt`** — the trained 176M language model (705 MB).
-- **`unified_brain.pt`** — the trained 302K reasoning faculties (1.2 MB, dated 2026-06-10).
-  ⚠️ **If this is missing, the 14 faculty checks run on RANDOM-INIT weights and fail → you
-  get ~4/14, NOT a broken model — just a missing file.** It does NOT regenerate. **The golden
-  `pragnosia_model.tar.gz` does NOT contain it** (only `unified_brain.py`, the code). Copy it
-  over explicitly (`scp unified_brain.pt h100:.../membrae/`).
+- **`unified_brain.pt`** — the trained 302K reasoning faculties (1.2 MB). ✅ **Now committed
+  to git** (a `!unified_brain.pt` exception in `.gitignore`), because it's tiny, essential,
+  and stable — so it travels with `git pull` and you don't have to copy it manually. ⚠️ If it
+  were ever missing, the 14 faculty checks run on RANDOM-INIT weights → ~4/14 (a missing file,
+  NOT a broken model). It does NOT regenerate.
 - **`data/big_train.bin`**, **`data/big_valid.bin`**, **`data/bpe.json`** — replay +
   calibration + tokenizer (see above).
 
