@@ -60,6 +60,7 @@ class Brain(nn.Module):
         self.tok = Tokenizer.from_file(CFG["tokenizer"])
         self.store = []            # retrieval memory (real seek faculty), (text, key_emb)
         self._replay = None
+        self._last_topic = None    # the topic its curiosity is currently chasing
         # Everything below is DERIVED from the data/model, never hand-set, and is
         # re-derived by recalibrate() as the brain grows. Nothing hardcoded.
         self.recalibrate()
@@ -79,7 +80,9 @@ class Brain(nn.Module):
         floor = self._bcurve[-1][1]
         self._learn_min = next((L for L, b in self._bcurve if b <= 2 * floor), 32)
         self.match_threshold = self._calibrate_match()  # what counts as a memory match
-        self.answer_conf_min = self._calibrate_answer_conf()  # decisiveness => it knows
+        self._content_min = self._calibrate_content_min()     # what counts as a content word
+        self.consistency_min = self._calibrate_consistency()  # answer-stability => it knows (honesty)
+        self.novelty_min = self._calibrate_novelty()          # content-surprise => it's NEW (learn)
 
     # ================= NEUROGENESIS: grow capacity on demand =================
     def grow(self, mode="depth", **kw):
@@ -246,52 +249,198 @@ class Brain(nn.Module):
             ids.append(nx)
         return self.tok.decode(ids[start:]).strip()
 
+    # ================= HONESTY by SELF-CONSISTENCY (no hardcode) =================
     @torch.no_grad()
-    def _generate_scored(self, prompt, n=40, rep=1.3):
-        """Generate an answer AND how confidently it flows out of the brain's OWN
-        dynamics: the mean decisiveness (top-1 probability of each next-token
-        distribution). Sharp, low-entropy generation means the brain KNOWS what it
-        is saying; flat, uncertain generation means it does not. This is recall from
-        the substrate itself -- no memory lookup -- and it is what lets the brain
-        answer what it has learned instead of abstaining on the question's phrasing."""
+    def _generate_sampled(self, prompt, n=24, temp=0.8):
+        """Sample (not argmax) a continuation -- used to probe whether the brain
+        REALLY knows something: stable knowledge gives the same answer every sample."""
         ids = self.tok.encode(prompt).ids; start = len(ids)
-        self.lm.eval(); confs = []
+        self.lm.eval()
         for _ in range(n):
-            x = torch.tensor([ids[-256:]], device=DEVICE)
-            lo = self.lm(x)[0, -1].float()
-            confs.append(F.softmax(lo, -1).max().item())   # decisiveness (before rep penalty)
-            for t in set(ids[-40:]): lo[t] /= rep
-            nx = lo.argmax().item()
+            lo = self.lm(torch.tensor([ids[-256:]], device=DEVICE))[0, -1].float() / max(temp, 1e-3)
+            for t in set(ids[-20:]): lo[t] -= 1.0          # mild anti-loop
+            nx = torch.multinomial(F.softmax(lo, -1), 1).item()
             if nx == 0: break
             ids.append(nx)
-        gen = ids[start:]
-        decis = sum(confs) / len(confs) if confs else 0.0
-        # Real knowledge is decisive AND coherent. A confident but LOOPING answer
-        # ("the city of the city of the city...") is the model reciting an empty
-        # template, not knowing -- so weight decisiveness by how non-repetitive the
-        # answer is (its own coherence check). Looping -> low score -> it abstains.
-        diversity = len(set(gen)) / max(len(gen), 1)
-        return self.tok.decode(gen).strip(), decis * diversity
+        return ids[start:]
 
     @torch.no_grad()
-    def _calibrate_answer_conf(self, k=24):
-        """The decisiveness at which generation reflects real knowledge -- calibrated
-        from the brain's OWN continuations of FAMILIAR text versus continuations of
-        random tokens. The bar sits in the gap between them. Derived, not hand-set;
-        re-derived as the brain grows."""
-        if not os.path.exists(f"data/{CFG['valid_bin']}.bin"): return 0.30
-        vd = H.load(CFG["valid_bin"]); g = torch.Generator().manual_seed(2)
-        fam, noise = [], []
+    def _self_consistency(self, question, k=5, n=24):
+        """The brain's OWN honesty signal: sample k answers and see whether they agree
+        on the ACTUAL ANSWER. Real knowledge pins the answer ('Paris' in every sample);
+        a confident confabulation ('my phone is 0.9' / 'I ate 10 eggs') puts a different
+        content word in every sample. Consistency = the largest fraction of samples that
+        share one content token (excluding the question's own words). No hardcoding.
+        Returns (consistency, a representative answer)."""
+        from collections import Counter
+        qset = set(self.tok.encode(question).ids)
+        samples = [self._generate_sampled(question, n) for _ in range(k)]
+        present = Counter()
+        for s in samples:
+            for t in (set(s) - qset):
+                if self._tw[t].item() >= self._content_min:        # only content tokens vote
+                    present[t] += 1
+        if not present:
+            return 0.0, self.tok.decode(samples[0]).strip()
+        tok_id, cnt = present.most_common(1)[0]
+        best = next((s for s in samples if tok_id in set(s)), samples[0])
+        return cnt / k, self.tok.decode(best).strip()
+
+    @torch.no_grad()
+    def _calibrate_content_min(self, k=3000):
+        """The self-information level above which a token carries real content -- the
+        median importance of tokens in actual running text (function words sit below,
+        content words above). Derived from data; re-derived as the brain grows."""
+        if not os.path.exists(f"data/{CFG['valid_bin']}.bin"): return 0.5
+        vd = H.load(CFG["valid_bin"]); g = torch.Generator().manual_seed(5)
+        idx = torch.randint(0, vd.size(0), (k,), generator=g)
+        return float(self._tw[vd[idx].long()].median())
+
+    @torch.no_grad()
+    def _calibrate_consistency(self, k=12):
+        """How much answer-agreement happens by CHANCE (random-seed questions). A real
+        answer must clear that, and clear a majority. Derived; re-derived as it grows."""
+        if not os.path.exists(f"data/{CFG['valid_bin']}.bin"): return 0.5
+        g = torch.Generator().manual_seed(3); noise = []
         for _ in range(k):
-            i = int(torch.randint(0, vd.size(0) - 16, (1,), generator=g))
-            _, c = self._generate_scored(self.tok.decode(vd[i:i+8].long().tolist()), n=12)
-            fam.append(c)
-            rnd = torch.randint(0, H.VOC, (8,), generator=g).tolist()
-            _, c2 = self._generate_scored(self.tok.decode(rnd), n=12)
-            noise.append(c2)
-        fam.sort(); noise.sort()
-        lo = noise[int(0.9 * len(noise))]; hi = fam[int(0.1 * len(fam))]
-        return (lo + hi) / 2 if hi > lo else lo
+            rnd = self.tok.decode(torch.randint(0, H.VOC, (5,), generator=g).tolist()) + "?"
+            noise.append(self._self_consistency(rnd, k=5, n=18)[0])
+        noise.sort()
+        return max(0.5, noise[int(0.9 * len(noise))] + 0.1)        # > chance AND a majority
+
+    # ================= NOVELTY: is the CONTENT new (so, learn it)? =================
+    @torch.no_grad()
+    def _novelty(self, text):
+        """Surprise on the CONTENT (rare, informative tokens), not the prose. Fluent
+        English is always low-perplexity, so average nll says 'familiar' even when the
+        FACTS are brand new. Weighting surprise by self-information makes new entities
+        / numbers / names register as novel -> the brain learns them like a child."""
+        ids = self.tok.encode(text).ids
+        if len(ids) < 2: return 0.0
+        logits = self.lm(torch.tensor([ids], device=DEVICE))[0, :-1]
+        tgt = torch.tensor(ids[1:], device=DEVICE)
+        nlls = F.cross_entropy(logits, tgt, reduction='none')
+        w = self._tw[tgt]
+        return float((nlls * w).sum() / (w.sum() + 1e-9))
+
+    @torch.no_grad()
+    def _calibrate_novelty(self, k=80):
+        """Content-surprise on familiar text -> the bar above which content is NEW."""
+        if not os.path.exists(f"data/{CFG['valid_bin']}.bin"): return 3.0
+        vd = H.load(CFG["valid_bin"]); g = torch.Generator().manual_seed(4)
+        vals = []
+        for _ in range(k):
+            i = int(torch.randint(0, vd.size(0) - 48, (1,), generator=g))
+            vals.append(self._novelty(self.tok.decode(vd[i:i+40].long().tolist())))
+        vals.sort(); return vals[int(0.6 * len(vals))]    # above-typical content surprise = new
+
+    # ================= CURIOSITY: it asks its OWN question =================
+    @torch.no_grad()
+    def wonder(self, text):
+        """Curiosity finds the TOPIC it is most surprised by (its biggest gap in what
+        it just saw) -- the contiguous run of content words around the peak surprise.
+        The topic is chosen by the brain's own uncertainty, not a fixed list. Returns
+        the entity string (e.g. 'Tycho Brahe'), or None."""
+        ids = self.tok.encode(text).ids
+        if len(ids) < 3: return None
+        logits = self.lm(torch.tensor([ids], device=DEVICE))[0, :-1]
+        tgt = torch.tensor(ids[1:], device=DEVICE)
+        surprise = F.cross_entropy(logits, tgt, reduction='none') * self._tw[tgt]
+        j = int(surprise.argmax()) + 1                      # index in ids of the surprising token
+        lo = hi = j                                          # grow over CONTIGUOUS content tokens
+        while lo > 0 and self._tw[ids[lo-1]].item() >= self._content_min: lo -= 1
+        while hi < len(ids)-1 and self._tw[ids[hi+1]].item() >= self._content_min: hi += 1
+        entity = self.tok.decode(ids[lo:hi+1]).strip().strip('.,;:"\'')
+        for lead in ("The ", "A ", "An ", "the ", "a "):    # drop a leading article
+            if entity.startswith(lead): entity = entity[len(lead):]
+        return entity if len(entity) > 1 else None
+
+    # ================= LOOK IT UP: search the world and learn =================
+    def search(self, query):
+        """Look the answer up on the open internet (Wikipedia) -- what a child does
+        when no one around knows. Returns a short factual summary, or None."""
+        import urllib.request, urllib.parse, json as _J
+        UA = {"User-Agent": "Pragnosia/1.0 (autonomous learning agent)"}   # Wikipedia requires it
+        def _get(url):
+            with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=8) as r:
+                return _J.load(r)
+        try:
+            api = "https://en.wikipedia.org/w/api.php?" + urllib.parse.urlencode(
+                {"action": "opensearch", "search": query, "limit": 1, "format": "json"})
+            hit = _get(api)
+            if not hit[1]: return None
+            title = hit[1][0].replace(" ", "_")
+            data = _get("https://en.wikipedia.org/api/rest_v1/page/summary/" + urllib.parse.quote(title))
+            ex = data.get("extract")
+            return ex if ex and len(ex) > 20 else None
+        except Exception:
+            return None
+
+    def learn_from_web(self, query):
+        text = self.search(query)
+        if text: self.teach(text, max_steps=40)
+        return text
+
+    # ================= GROW when it saturates =================
+    def _maybe_grow(self):
+        """If it keeps trying to learn but cannot drive new facts below its own
+        familiarity bar, it is out of capacity -> it grows itself (function-preserving)."""
+        if getattr(self, "_learn_fails", 0) >= 3:
+            import grow as G
+            self._learn_fails = 0
+            before = G.n_params(self.lm)
+            self.lm = G.grow_width(self.lm, add_mult=2).to(DEVICE)
+            self.recalibrate()
+            return before, G.n_params(self.lm)
+        return None
+
+    # ================= THINK: one step of child cognition =================
+    def think(self, observation, answer_fn=None):
+        """One step of a child's mind: take in what it sees, LEARN it if the content
+        is new, then WONDER a question of its own; try to ANSWER from itself, and if it
+        does not know, get the answer (from a teacher if given, else the INTERNET) and
+        learn it. GROW if it has saturated. Returns a trace of what it did/thought."""
+        tr = {}
+        obs = observation.strip()
+        if not obs: return {"idle": True}
+        tr["novelty"] = round(self._novelty(obs), 2)
+        if tr["novelty"] > self.novelty_min and len(self.tok.encode(obs).ids) >= self._learn_min:
+            self.teach(obs, max_steps=40); tr["learned"] = True
+        entity = self.wonder(obs); self._last_topic = entity
+        if entity:
+            q = f"What is {entity}?"; tr["wonders"] = q
+            cons, ans = self._self_consistency(q)
+            if cons >= self.consistency_min:
+                tr["knows"] = ans
+            else:
+                tr["didnt_know"] = True
+                provided = answer_fn(q) if answer_fn else None
+                src = provided or self.search(entity)        # look up the ENTITY, not the sentence
+                if src:
+                    self.teach(f"{entity}: {src}" if not provided else f"{q} {src}", max_steps=40)
+                    tr["learned_answer"] = (src[:90] + "...") if len(src) > 90 else src
+                    tr["source"] = "teacher" if provided else "internet"
+                grew = self._maybe_grow()
+                if grew: tr["grew"] = f"{grew[0]:,} -> {grew[1]:,} params"
+        return tr
+
+    def explore(self):
+        """Autonomous curiosity: with no prompt from us, the brain CHASES its own last
+        topic -- looks it up, learns it, and wonders the next topic from what it just
+        learned. A self-driven train of thought (it follows its own nose)."""
+        topic = self._last_topic
+        if not topic: return {"idle": "nothing to wonder about yet -- tell it something"}
+        tr = {"pursuing": f"What is {topic}?"}
+        info = self.learn_from_web(topic)
+        if info:
+            tr["learned_from_web"] = (info[:90] + "...") if len(info) > 90 else info
+            nt = self.wonder(info); self._last_topic = nt
+            if nt: tr["now_wonders"] = f"What is {nt}?"
+            grew = self._maybe_grow()
+            if grew: tr["grew"] = f"{grew[0]:,} -> {grew[1]:,} params"
+        else:
+            tr["couldnt_find"] = topic; self._last_topic = None
+        return tr
 
     # ================= WIRED: seek (retrieve from memory) =================
     # No stopword/pronoun lists. Similarity uses self-information-weighted
@@ -309,10 +458,10 @@ class Brain(nn.Module):
         hit = self._retrieve(q)
         if hit is not None:
             return f"{hit}" + ("   [recalled from memory / seek]" if verbose else "")
-        ans, c = self._generate_scored(q)            # recall from its own dynamics
-        if c < self.answer_conf_min:
-            return "I don't know." + (f"   [abstained: decisiveness {c:.2f}<{self.answer_conf_min:.2f}]" if verbose else "")
-        return ans[:160] + (f"   [answered: decisiveness {c:.2f}]" if verbose else "")
+        cons, ans = self._self_consistency(q)        # honest: answer only if stable
+        if cons < self.consistency_min:
+            return "I don't know." + (f"   [abstained: consistency {cons:.2f}<{self.consistency_min:.2f}]" if verbose else "")
+        return ans[:160] + (f"   [answered: consistency {cons:.2f}]" if verbose else "")
 
     # ================= WIRED: teach (continuous learning, self-modulated) =====
     # Surprise-modulated plasticity (like a brain's neuromodulation): the brain
@@ -358,6 +507,13 @@ class Brain(nn.Module):
                 if self._nll(fact) < target: self.lm.train(); break
                 self.lm.train()
         self.lm.eval()
+        # SATURATION signal: if it ran the full budget and STILL can't drive the fact
+        # below its own bar, it's struggling to fit new knowledge -> count it. Enough
+        # consecutive struggles and _maybe_grow() adds capacity (the brain grows itself).
+        if self._nll(fact) > target and used >= max_steps:
+            self._learn_fails = getattr(self, "_learn_fails", 0) + 1
+        else:
+            self._learn_fails = 0
         if verbose:
             print(f"   [plasticity {plasticity:.2f} (surprise {surprise:.1f}/boundary "
                   f"{self.abstain_threshold:.1f}), lr {lr_eff:.1e}, {used} steps]")
@@ -400,19 +556,19 @@ class Brain(nn.Module):
         is_query = text.endswith("?")
         if is_query:
             if hit is not None:  return hit, "seek/recall"
-            # answer from its OWN dynamics: generate, and KNOW whether it knows by how
-            # decisively the answer flows out -- not by the familiarity of the question.
-            ans, c = self._generate_scored(text)
-            if c >= self.answer_conf_min:
-                return ans[:160], f"answer(knows {c:.2f})"
-            return "I don't know.", f"abstain(uncertain-gen {c:.2f})"
-        # not a question -> incoming information. Curiosity = own uncertainty, BUT it
-        # only commits a fact to memory if the input is substantial enough to be one
-        # (>= self._learn_min tokens). Short surprising fragments / noise are NOT
-        # memorized -- it just continues from them -- so curiosity can't corrupt skills.
-        if hit is not None and u <= bound:
+            # HONESTY via self-consistency: answer only if the brain gives a STABLE
+            # answer across samples (it really knows); a confident confabulation varies
+            # sample to sample -> it abstains. Not the familiarity of the question.
+            cons, ans = self._self_consistency(text)
+            if cons >= self.consistency_min:
+                return ans[:160], f"answer(consistent {cons:.2f})"
+            return "I don't know.", f"abstain(inconsistent {cons:.2f})"
+        # not a question -> incoming information. Learn when the CONTENT is new (content-
+        # weighted surprise), not when prose is unusual -- so it learns real facts like a
+        # child. Only commit substantial input (>= _learn_min tokens), never fragments.
+        if hit is not None and self._novelty(text) <= self.novelty_min:
             return "I know.", "already-known"
-        if u > bound and n >= self._learn_min:           # substantial & novel -> learn
+        if self._novelty(text) > self.novelty_min and n >= self._learn_min:
             self.teach(text, max_steps=40)
             return "That's new to me - I've learned it.", "learn(curiosity)"
         return self.generate_text(text)[:120], "continue(confident)"
