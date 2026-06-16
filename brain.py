@@ -72,7 +72,14 @@ class Brain(nn.Module):
         match boundary. Call again whenever the brain grows; it self-tunes."""
         self._tw = self._token_self_information()   # what words matter (from data)
         self.abstain_threshold = self._calibrate()  # familiarity boundary (own confidence)
+        # smallest input the brain treats as a teachable FACT (vs a fragment/query):
+        # the length at which familiar text becomes long-form predictable (boundary
+        # settles toward its floor). Derived from its own curve -- not hand-set. This
+        # stops it from memorizing 4-token fragments and noise, which corrupts skills.
+        floor = self._bcurve[-1][1]
+        self._learn_min = next((L for L, b in self._bcurve if b <= 2 * floor), 32)
         self.match_threshold = self._calibrate_match()  # what counts as a memory match
+        self.answer_conf_min = self._calibrate_answer_conf()  # decisiveness => it knows
 
     # ================= NEUROGENESIS: grow capacity on demand =================
     def grow(self, mode="depth", **kw):
@@ -114,49 +121,77 @@ class Brain(nn.Module):
         return w
 
     @torch.no_grad()
-    def _calibrate(self, k=80):
-        """Familiarity boundary from the model's OWN uncertainty on text it has
-        seen -- not a hand-picked number. Deterministic, re-derivable."""
+    def _calibrate(self, k=60):
+        """Length-AWARE familiarity boundary: the model's OWN 90th-percentile NLL on
+        familiar text, measured AT EACH LENGTH. A short input is inherently less
+        predictable than a long one (less context), so a single scalar boundary
+        mislabels short prompts as 'novel' -- the bug the conversation test exposed.
+        Instead we calibrate a curve (length -> boundary) from the model's own
+        confidence and judge every input against the boundary for ITS length.
+        Nothing hand-set; re-derived as the brain grows."""
+        self._bcurve = [(8, 4.5), (256, 4.5)]              # safe default
         if not os.path.exists(f"data/{CFG['valid_bin']}.bin"): return 4.5
-        vd = H.load(CFG["valid_bin"])
-        g = torch.Generator().manual_seed(0)
-        nlls = []
-        for _ in range(k):
-            i = int(torch.randint(0, vd.size(0) - 40, (1,), generator=g))
-            seg = vd[i:i+32]
-            nlls.append(F.cross_entropy(self.lm(seg.unsqueeze(0).to(DEVICE))[0, :-1],
-                                        seg[1:].to(DEVICE)).item())
-        nlls.sort()
-        return nlls[int(0.9 * len(nlls))]
+        vd = H.load(CFG["valid_bin"]); g = torch.Generator().manual_seed(0)
+        curve = []
+        for L in (4, 8, 16, 32, 64, 128):
+            nlls = []
+            for _ in range(k):
+                i = int(torch.randint(0, vd.size(0) - L - 1, (1,), generator=g))
+                seg = vd[i:i+L].long().to(DEVICE)          # memmap is int16; embedding needs long
+                nlls.append(F.cross_entropy(self.lm(seg.unsqueeze(0))[0, :-1], seg[1:]).item())
+            nlls.sort(); curve.append((L, nlls[int(0.9 * len(nlls))]))
+        self._bcurve = curve
+        return self.boundary_for(16)                       # representative short-prompt scalar
+
+    def boundary_for(self, n):
+        """Familiarity boundary for an n-token input: interpolate the calibrated
+        length->boundary curve. The numbers are the model's own, not hand-set."""
+        c = self._bcurve
+        if n <= c[0][0]:  return c[0][1]
+        if n >= c[-1][0]: return c[-1][1]
+        for (l0, b0), (l1, b1) in zip(c, c[1:]):
+            if l0 <= n <= l1:
+                t = (n - l0) / (l1 - l0); return b0 + t * (b1 - b0)
+        return c[-1][1]
 
     @torch.no_grad()
     def _calibrate_match(self, k=200):
-        """Memory-match boundary from the data's OWN similarity distribution:
-        sample unrelated text pairs, see how similar they look by chance, and set
-        the bar above that background. Not a hand-picked 0.5."""
+        """Memory-match boundary from the data's OWN similarity STRUCTURE: text that
+        shares local context (overlapping segments) should count as a match; unrelated
+        text should not. Set the bar in the gap between those two distributions -- the
+        old '98th percentile of random pairs' sat ABOVE genuine matches and made seek
+        miss what the brain actually knew. Still fully data-derived; no magic number."""
         if not os.path.exists(f"data/{CFG['valid_bin']}.bin"): return 0.5
         vd = H.load(CFG["valid_bin"]); g = torch.Generator().manual_seed(1)
-        sims = []
+        pos, neg = [], []
         for _ in range(k):
-            i = int(torch.randint(0, vd.size(0) - 20, (1,), generator=g))
+            i = int(torch.randint(0, vd.size(0) - 40, (1,), generator=g))
             j = int(torch.randint(0, vd.size(0) - 20, (1,), generator=g))
-            a = self._embed_ids(vd[i:i+12]); b = self._embed_ids(vd[j:j+12])
-            sims.append(float(a @ b))
-        sims.sort()
-        return sims[int(0.98 * len(sims))]        # well above chance similarity
+            a  = self._embed_ids(vd[i:i+12])
+            ap = self._embed_ids(vd[i+6:i+18])    # overlaps a -> related (positive)
+            b  = self._embed_ids(vd[j:j+12])      # distant       -> unrelated (negative)
+            pos.append(float(a @ ap)); neg.append(float(a @ b))
+        pos.sort(); neg.sort()
+        lo = neg[int(0.9 * len(neg))]             # top of the unrelated background
+        hi = pos[int(0.1 * len(pos))]             # bottom of the genuine-match band
+        return (lo + hi) / 2 if hi > lo else lo   # the separating bar
 
     def _install_identity(self, cache=f"pragnosia_id_{CFG['vocab']}.pt"):
         """Self-knowledge LEARNED INTO WEIGHTS (the proven continuous-learning
         faculty), as Q->A pairs, so it is recalled by the brain's own generation
         and gated by its own confidence -- no retrieval heuristics, no hardcoding.
         Each statement is TRUE of a capability the brain actually has."""
+        # Plain STATEMENTS, not "What is X? ..." Q&A: teaching the question form makes
+        # the brain over-generalize "What is ...?" -> the identity answer, poisoning
+        # every later question. As statements, the self-knowledge lives in the weights
+        # (and in seek memory) without hijacking question-answering.
         qa = [
-            f"What is your name? My name is {self.NAME}.",
-            f"Who are you? I am {self.NAME}, a spinning brain that reasons by phase.",
-            "Can you learn? Yes, I learn new things continuously without forgetting.",
-            "What do you not know? I know the limits of my knowledge and say so.",
-            "Are you curious? Yes, I explore whatever I am most uncertain about.",
-            "How do you think? I think by spinning, my answer lives in the phase.",
+            f"My name is {self.NAME}.",
+            f"I am {self.NAME}, a spinning brain that reasons by phase.",
+            "I learn new things continuously without forgetting.",
+            "I know the limits of my knowledge, and I say so when I do not know.",
+            "I am curious, and I explore whatever I am most uncertain about.",
+            "I think by spinning; my answer lives in the phase.",
         ]
         if os.path.exists(cache):
             self.lm.load_state_dict(torch.load(cache, map_location=DEVICE, weights_only=True))
@@ -186,7 +221,7 @@ class Brain(nn.Module):
 
     @torch.no_grad()
     def _embed_ids(self, ids):
-        ids = torch.as_tensor(ids, device=DEVICE)
+        ids = torch.as_tensor(ids, device=DEVICE).long()   # memmap segs are int16; embedding needs long
         if ids.numel() == 0: ids = torch.zeros(1, dtype=torch.long, device=DEVICE)
         # the brain's OWN contextual understanding, weighted by learned importance
         rep = self.lm.represent(ids.unsqueeze(0))[0]  # (n,d) contextual hidden
@@ -211,6 +246,53 @@ class Brain(nn.Module):
             ids.append(nx)
         return self.tok.decode(ids[start:]).strip()
 
+    @torch.no_grad()
+    def _generate_scored(self, prompt, n=40, rep=1.3):
+        """Generate an answer AND how confidently it flows out of the brain's OWN
+        dynamics: the mean decisiveness (top-1 probability of each next-token
+        distribution). Sharp, low-entropy generation means the brain KNOWS what it
+        is saying; flat, uncertain generation means it does not. This is recall from
+        the substrate itself -- no memory lookup -- and it is what lets the brain
+        answer what it has learned instead of abstaining on the question's phrasing."""
+        ids = self.tok.encode(prompt).ids; start = len(ids)
+        self.lm.eval(); confs = []
+        for _ in range(n):
+            x = torch.tensor([ids[-256:]], device=DEVICE)
+            lo = self.lm(x)[0, -1].float()
+            confs.append(F.softmax(lo, -1).max().item())   # decisiveness (before rep penalty)
+            for t in set(ids[-40:]): lo[t] /= rep
+            nx = lo.argmax().item()
+            if nx == 0: break
+            ids.append(nx)
+        gen = ids[start:]
+        decis = sum(confs) / len(confs) if confs else 0.0
+        # Real knowledge is decisive AND coherent. A confident but LOOPING answer
+        # ("the city of the city of the city...") is the model reciting an empty
+        # template, not knowing -- so weight decisiveness by how non-repetitive the
+        # answer is (its own coherence check). Looping -> low score -> it abstains.
+        diversity = len(set(gen)) / max(len(gen), 1)
+        return self.tok.decode(gen).strip(), decis * diversity
+
+    @torch.no_grad()
+    def _calibrate_answer_conf(self, k=24):
+        """The decisiveness at which generation reflects real knowledge -- calibrated
+        from the brain's OWN continuations of FAMILIAR text versus continuations of
+        random tokens. The bar sits in the gap between them. Derived, not hand-set;
+        re-derived as the brain grows."""
+        if not os.path.exists(f"data/{CFG['valid_bin']}.bin"): return 0.30
+        vd = H.load(CFG["valid_bin"]); g = torch.Generator().manual_seed(2)
+        fam, noise = [], []
+        for _ in range(k):
+            i = int(torch.randint(0, vd.size(0) - 16, (1,), generator=g))
+            _, c = self._generate_scored(self.tok.decode(vd[i:i+8].long().tolist()), n=12)
+            fam.append(c)
+            rnd = torch.randint(0, H.VOC, (8,), generator=g).tolist()
+            _, c2 = self._generate_scored(self.tok.decode(rnd), n=12)
+            noise.append(c2)
+        fam.sort(); noise.sort()
+        lo = noise[int(0.9 * len(noise))]; hi = fam[int(0.1 * len(fam))]
+        return (lo + hi) / 2 if hi > lo else lo
+
     # ================= WIRED: seek (retrieve from memory) =================
     # No stopword/pronoun lists. Similarity uses self-information-weighted
     # embeddings (importance derived from data); the match bar is data-calibrated.
@@ -227,10 +309,10 @@ class Brain(nn.Module):
         hit = self._retrieve(q)
         if hit is not None:
             return f"{hit}" + ("   [recalled from memory / seek]" if verbose else "")
-        nll = self._nll(q)
-        if nll > self.abstain_threshold:
-            return "I don't know." + (f"   [abstained: confidence {nll:.1f}>{self.abstain_threshold}]" if verbose else "")
-        return self.generate_text(q)[:120] + (f"   [answered: confidence {nll:.1f}]" if verbose else "")
+        ans, c = self._generate_scored(q)            # recall from its own dynamics
+        if c < self.answer_conf_min:
+            return "I don't know." + (f"   [abstained: decisiveness {c:.2f}<{self.answer_conf_min:.2f}]" if verbose else "")
+        return ans[:160] + (f"   [answered: decisiveness {c:.2f}]" if verbose else "")
 
     # ================= WIRED: teach (continuous learning, self-modulated) =====
     # Surprise-modulated plasticity (like a brain's neuromodulation): the brain
@@ -243,21 +325,35 @@ class Brain(nn.Module):
     def teach(self, fact, base_lr=2e-4, max_steps=60, persist=False, verbose=False):
         if self._replay is None: self._replay = H.load(CFG["train_bin"])
         surprise = self._nll(fact)                                   # own prediction error
-        plasticity = min(3.0, max(0.15, surprise / max(self.abstain_threshold, 1e-3)))
+        bound_n = self.boundary_for(len(self.tok.encode(fact).ids))  # boundary at THIS length
+        plasticity = min(3.0, max(0.15, surprise / max(bound_n, 1e-3)))
         lr_eff = base_lr * plasticity                               # self-set learning rate
-        target = self.abstain_threshold * 0.6                       # "no longer surprised"
+        target = bound_n * 0.4           # learn well enough to RECALL (below familiarity),
+                                         # but not to ~0 -- extreme over-memorizing bleeds
         self.store.append((fact, self._embed(fact)))
         fact_ids = torch.tensor([self.tok.encode(fact).ids], device=DEVICE)
+        # CONSOLIDATION (generative self-replay): snapshot what the brain ITSELF
+        # currently predicts on a few real-text batches, then keep matching those
+        # predictions while it learns the new fact. The brain rehearses its own
+        # knowledge so the new fact cannot overwrite skills it already has -- like a
+        # brain consolidating memory, not a fixed model overwriting weights.
+        self.lm.eval(); anchors = []
+        with torch.no_grad():
+            for _ in range(3):
+                xa, _ = H.batch(self._replay, 4)
+                anchors.append((xa, self.lm(xa).argmax(-1)))   # its own current self
         opt = torch.optim.AdamW(self.lm.parameters(), lr=lr_eff)
         self.lm.train(); used = 0
         for step in range(1, max_steps + 1):
             lf = F.cross_entropy(self.lm(fact_ids[:, :-1]).reshape(-1, H.VOC), fact_ids[:, 1:].reshape(-1))
-            xr, yr = H.batch(self._replay, 8)
+            xr, yr = H.batch(self._replay, 8)                  # true-corpus replay
             lr_ = F.cross_entropy(self.lm(xr).reshape(-1, H.VOC), yr.reshape(-1))
-            opt.zero_grad(); (lf + lr_).backward()
+            xa, ta = anchors[step % len(anchors)]              # self-consolidation anchor
+            la = F.cross_entropy(self.lm(xa).reshape(-1, H.VOC), ta.reshape(-1))
+            opt.zero_grad(); (lf + 1.5 * lr_ + la).backward()  # weight true replay a bit higher
             torch.nn.utils.clip_grad_norm_(self.lm.parameters(), 1.0); opt.step()
             used = step
-            if step % 5 == 0:                                        # stop once it's learned
+            if step % 2 == 0:                                        # check often -> less overshoot
                 self.lm.eval()
                 if self._nll(fact) < target: self.lm.train(); break
                 self.lm.train()
@@ -289,8 +385,9 @@ class Brain(nn.Module):
         return self._nll(text)
     def knows(self, text):
         """Real self-knowledge of its knowledge boundary: below its OWN calibrated
-        familiarity boundary, or already in memory."""
-        return self._retrieve(text) is not None or self.uncertainty(text) <= self.abstain_threshold
+        familiarity boundary FOR THIS LENGTH, or already in memory."""
+        n = len(self.tok.encode(text).ids)
+        return self._retrieve(text) is not None or self.uncertainty(text) <= self.boundary_for(n)
 
     def respond(self, text):
         """The brain routes itself from confidence + curiosity. Returns (reply, decision)."""
@@ -298,23 +395,31 @@ class Brain(nn.Module):
         if not text: return "", "noop"
         hit = self._retrieve(text)                       # real seek (covers self-knowledge)
         u = self.uncertainty(text)                       # real own-uncertainty
+        n = len(self.tok.encode(text).ids)
+        bound = self.boundary_for(n)                     # boundary for THIS length
         is_query = text.endswith("?")
         if is_query:
-            if hit is not None:       return hit, "seek/recall"
-            if u <= self.abstain_threshold: return self.generate_text(text)[:120], "answer(confident)"
-            return "I don't know.", "abstain(low-confidence)"
-        # not a question -> incoming information. Curiosity = own uncertainty:
-        # learn what it is uncertain about; acknowledge what it already knows.
-        if hit is not None and u <= self.abstain_threshold:
+            if hit is not None:  return hit, "seek/recall"
+            # answer from its OWN dynamics: generate, and KNOW whether it knows by how
+            # decisively the answer flows out -- not by the familiarity of the question.
+            ans, c = self._generate_scored(text)
+            if c >= self.answer_conf_min:
+                return ans[:160], f"answer(knows {c:.2f})"
+            return "I don't know.", f"abstain(uncertain-gen {c:.2f})"
+        # not a question -> incoming information. Curiosity = own uncertainty, BUT it
+        # only commits a fact to memory if the input is substantial enough to be one
+        # (>= self._learn_min tokens). Short surprising fragments / noise are NOT
+        # memorized -- it just continues from them -- so curiosity can't corrupt skills.
+        if hit is not None and u <= bound:
             return "I know.", "already-known"
-        if u > self.abstain_threshold:                   # novel -> curiosity drives learning
+        if u > bound and n >= self._learn_min:           # substantial & novel -> learn
             self.teach(text, max_steps=40)
             return "That's new to me - I've learned it.", "learn(curiosity)"
         return self.generate_text(text)[:120], "continue(confident)"
 
     # ---- real introspection (grounded in actual mechanisms) ----
     def introspect(self):
-        return [t for t, _ in self.store if t.startswith(("My name", self.NAME, "I "))]
+        return [t for t, _ in self.store if self.NAME in t or " I " in f" {t} "]
     def curiosity_pick(self, options):
         """The proven curiosity signal: choose what it is MOST uncertain about."""
         return max(options, key=self.uncertainty)
