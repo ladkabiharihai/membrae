@@ -181,29 +181,39 @@ class Brain(nn.Module):
         return (lo + hi) / 2 if hi > lo else lo   # the separating bar
 
     def _install_identity(self, cache=f"pragnosia_id_{CFG['vocab']}.pt"):
-        """Self-knowledge LEARNED INTO WEIGHTS (the proven continuous-learning
-        faculty), as Q->A pairs, so it is recalled by the brain's own generation
-        and gated by its own confidence -- no retrieval heuristics, no hardcoding.
-        Each statement is TRUE of a capability the brain actually has."""
-        # Plain STATEMENTS, not "What is X? ..." Q&A: teaching the question form makes
-        # the brain over-generalize "What is ...?" -> the identity answer, poisoning
-        # every later question. As statements, the self-knowledge lives in the weights
-        # (and in seek memory) without hijacking question-answering.
-        qa = [
-            f"My name is {self.NAME}.",
-            f"I am {self.NAME}, a spinning brain that reasons by phase.",
-            "I learn new things continuously without forgetting.",
-            "I know the limits of my knowledge, and I say so when I do not know.",
-            "I am curious, and I explore whatever I am most uncertain about.",
-            "I think by spinning; my answer lives in the phase.",
+        """Identity as real KNOWLEDGE in the weights -- learned the way a child learns
+        its name: MANY varied exposures of the one concrete fact (the name), so it
+        integrates and is recalled by the brain's OWN GENERATION, gated by its OWN
+        confidence (self-consistency). This is the cognitive path, NOT retrieval/lookup.
+
+        Honesty then falls out of cognition, not similarity: the brain genuinely KNOWS
+        its name (every sample says Pragnosia -> high self-consistency -> answer), and
+        genuinely does NOT know your favourite colour (every sample differs -> low
+        self-consistency -> abstain). Same gate, no special-casing.
+
+        Two rules learned the hard way:
+        - ONLY name-binding facts. NO abstract self-description ('I reason by phase',
+          'I am curious...'): those fluent, content-light sentences over-fit and BLEED
+          into unrelated generation and fool the honesty gate. 'Pragnosia' is a rare
+          token, so it does not leak into ordinary prose.
+        - MANY phrasings, taught GENTLY (low lr, few steps), interleaved with the heavy
+          real-corpus replay already in teach(), so no single sentence dominates and
+          'What is ...?' does not collapse to the identity answer."""
+        n = self.NAME
+        facts = [
+            f"My name is {n}.", f"I am {n}.", f"You can call me {n}.",
+            f"I am called {n}.", f"People call me {n}.", f"I go by {n}.",
+            f"Who are you? I am {n}.", f"What is your name? My name is {n}.",
+            f"What are you called? I am called {n}.", f"And you are? I am {n}.",
+            f"Hello, I am {n}.", f"This is {n}.",
         ]
         if os.path.exists(cache):
             self.lm.load_state_dict(torch.load(cache, map_location=DEVICE, weights_only=True))
         else:
-            for s in qa:
-                self.teach(s, max_steps=40)          # learn identity into weights
+            for s in facts:
+                self.teach(s, base_lr=1e-4, max_steps=20)     # gentle: nudge, don't memorize-hard
             self._atomic_save(self.lm.state_dict(), cache)
-        for s in qa:                              # also keep in seek memory (belt + braces)
+        for s in facts:                          # also in seek memory (for ask(); recall is generative)
             self.store.append((s, self._embed(s)))
 
     # ================= proven faculties (delegate) =================
@@ -460,7 +470,7 @@ class Brain(nn.Module):
         if not text:
             return self.explore()
         if text.endswith("?"):
-            cons, ans = self._self_consistency(text)
+            cons, ans = self._self_consistency(text)    # answer only if it HONESTLY knows
             if cons >= self.consistency_min:
                 return {"answer": ans[:200]}
             topic = self.wonder(text) or text.rstrip("? ").split(" ")[-1]
