@@ -202,7 +202,7 @@ class Brain(nn.Module):
         else:
             for s in qa:
                 self.teach(s, max_steps=40)          # learn identity into weights
-            torch.save(self.lm.state_dict(), cache)
+            self._atomic_save(self.lm.state_dict(), cache)
         for s in qa:                              # also keep in seek memory (belt + braces)
             self.store.append((s, self._embed(s)))
 
@@ -395,34 +395,37 @@ class Brain(nn.Module):
             return before, G.n_params(self.lm)
         return None
 
-    # ================= THINK: one step of child cognition =================
+    # ================= THINK: respond to a statement (and learn if it's new) =======
     def think(self, observation, answer_fn=None):
-        """One step of a child's mind: take in what it sees, LEARN it if the content
-        is new, then WONDER a question of its own; try to ANSWER from itself, and if it
-        does not know, get the answer (from a teacher if given, else the INTERNET) and
-        learn it. GROW if it has saturated. Returns a trace of what it did/thought."""
-        tr = {}
+        """Respond to something said to it -- it ALWAYS replies. If what was said is
+        substantial NEW content (several real content words AND surprising), it also
+        LEARNS it, WONDERS its own question about it, and looks that up if it doesn't
+        know. A greeting / a sum / small talk / something it already knows is NOT
+        memorized -- it just gets a reply."""
         obs = observation.strip()
         if not obs: return {"idle": True}
-        tr["novelty"] = round(self._novelty(obs), 2)
-        if tr["novelty"] > self.novelty_min and len(self.tok.encode(obs).ids) >= self._learn_min:
-            self.teach(obs, max_steps=40); tr["learned"] = True
-        entity = self.wonder(obs); self._last_topic = entity
-        if entity:
-            tr["wonders"] = f"What is {entity}?"
-            cons, _ = self._self_consistency(tr["wonders"])
-            if cons >= self.consistency_min:
-                tr["knows"] = True
-            else:
-                tr["didnt_know"] = entity
-                provided = answer_fn(tr["wonders"]) if answer_fn else None
-                src = provided or self.search(entity)        # look up the ENTITY, not the sentence
-                if src:
-                    self.teach(f"{entity}: {src}" if not provided else f"{tr['wonders']} {src}", max_steps=40)
-                    tr["looked_up"] = (src[:140] + "...") if len(src) > 140 else src
+        ids = self.tok.encode(obs).ids
+        n_content = sum(self._tw[t].item() >= self._content_min for t in ids)
+        is_new_fact = (self._novelty(obs) > self.novelty_min and n_content >= 4
+                       and len(ids) >= self._learn_min)
+        if is_new_fact:
+            entity = self.wonder(obs); self._last_topic = entity   # wonder BEFORE teaching,
+            self.teach(obs, max_steps=40)                          # while the new entity is still surprising
+            tr = {"learned": True, "answer": "Got it -- I've learned that."}
+            if entity:
+                tr["wonders"] = f"What is {entity}?"
+                if self._self_consistency(tr["wonders"])[0] < self.consistency_min:
+                    provided = answer_fn(tr["wonders"]) if answer_fn else None
+                    src = provided or self.search(entity)    # look up the ENTITY, not the sentence
+                    if src:
+                        self.teach(f"{entity}: {src}" if not provided else f"{tr['wonders']} {src}", max_steps=40)
+                        tr["didnt_know"] = entity
+                        tr["looked_up"] = (src[:140] + "...") if len(src) > 140 else src
                 grew = self._maybe_grow()
                 if grew: tr["grew"] = f"{grew[0]:,} -> {grew[1]:,} params"
-        return tr
+            return tr
+        reply = self.generate_text(obs, n=30).strip()        # otherwise: just talk back
+        return {"answer": reply[:160] if reply else "(I'm not sure what to say to that.)"}
 
     def explore(self):
         """Autonomous curiosity: with no prompt from us, the brain CHASES its own last
@@ -550,13 +553,33 @@ class Brain(nn.Module):
                   f"{self.abstain_threshold:.1f}), lr {lr_eff:.1e}, {used} steps]")
         if persist: self.persist()
 
+    @staticmethod
+    def _atomic_save(obj, path, _torch_save=True):
+        """FAIL-SAFE save: write to a temp file, fsync, then ATOMICALLY replace the
+        target. If the process is killed mid-save, the original file is left intact --
+        a partial write can never corrupt the model again."""
+        tmp = f"{path}.tmp.{os.getpid()}"
+        try:
+            if _torch_save:
+                torch.save(obj, tmp)
+            else:
+                with open(tmp, "w") as f: json.dump(obj, f)
+            with open(tmp, "rb" if _torch_save else "r") as f:
+                os.fsync(f.fileno())
+            os.replace(tmp, path)                 # atomic on the same filesystem
+        finally:
+            if os.path.exists(tmp):
+                try: os.remove(tmp)
+                except OSError: pass
+
     def persist(self):
-        """Save what the brain has grown -- weights + memory -- so it survives
-        across sessions. This is how it 'grows by itself' without retraining."""
-        torch.save(self.lm.state_dict(), self.cfg["ckpt"])
-        learned = [t for t, _ in self.store if not t.startswith(("What is your name", "Who are you",
-                   "Can you learn", "What do you not know", "Are you curious", "How do you think"))]
-        json.dump(learned, open(self.MEM_FILE, "w"))
+        """Save what the brain has grown -- weights + memory -- so it survives across
+        sessions. Writes are atomic (see _atomic_save), so an interrupted save never
+        corrupts the checkpoint."""
+        self._atomic_save(self.lm.state_dict(), self.cfg["ckpt"])
+        learned = [t for t, _ in self.store
+                   if self.NAME not in t and not t.startswith(("My name", "I "))]
+        self._atomic_save(learned, self.MEM_FILE, _torch_save=False)
 
     def _load_memory(self):
         if os.path.exists(self.MEM_FILE):
@@ -678,12 +701,18 @@ def live(brain):
     print(f"Pragnosia is awake -- {brain.n_params():,} params. Just talk to it: it answers")
     print("what it knows, learns what you tell it, wonders its own questions, and looks up")
     print("what it doesn't know. Press Enter alone to let it think. 'quit' saves & exits.\n")
+    learned_anything = False
     while True:
         try: msg = input("you> ").strip()
         except (EOFError, KeyboardInterrupt): break
         if msg.lower() in ("quit", "exit"): break
-        _show(brain.interact(msg)); print()
-    brain.persist(); print("\n[saved what it learned this session]")
+        tr = brain.interact(msg)
+        if tr.get("learned") or tr.get("looked_up"): learned_anything = True
+        _show(tr); print()
+    if learned_anything:                              # only save (overwrite) if it actually grew
+        brain.persist(); print("\n[saved what it learned this session]")
+    else:
+        print("\n[nothing new learned -- model left untouched]")
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "test":
