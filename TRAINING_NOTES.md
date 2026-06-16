@@ -43,3 +43,21 @@ chain-of-thought prose is often confabulated. The 176M size is the remaining cei
 python3 probe.py                 # faculty + language + decision trace
 python3 probe.py "5 + 7 ="       # single prompt
 ```
+
+## ⚠️ Ship the data bins with the checkpoint (continual learning depends on it)
+`pragnosia.pt` alone is **not enough** to run `brain.py` correctly — you also need
+`data/big_train.bin`, `data/big_valid.bin`, and `data/bpe.json`, all from THIS run:
+- `big_train.bin` = replay source for `teach()`. Continual learning interleaves
+  replay from it so new facts don't erase old skills. Replaying the **wrong/dirty**
+  corpus (e.g. one rebuilt locally with HTML markup) corrupts the model on every
+  teach — including the startup identity install — so `brain.py` looks broken while
+  `probe.py` (which never teaches) stays fine. It must be the **same corpus, same
+  tokenizer** as training.
+- `big_valid.bin` = what the abstention boundary / seek-match / answer-confidence
+  self-calibrate from. A fake valid set (decodes as garbage, ppl ~2 instead of ~18)
+  gives wrong boundaries.
+
+These bins are gitignored. Verify a transferred bin: it should decode to clean
+prose/math under `bpe.json`, and base-model val ppl on `big_valid` ≈ 18–22 (this
+run's training value), not ~2. See `diagnose.py` (it isolates this exact failure)
+and RUNBOOK.md STEP 1 for the full rationale.

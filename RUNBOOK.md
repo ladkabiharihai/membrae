@@ -11,6 +11,29 @@ OpenOrca/Alpaca/Dolly (reasoning) + GSM8K/Orca-Math (mathematics) +
 CodeAlpaca/Python-instructions (coding) + OpenAssistant (multi-turn chat) +
 CoEdit (English grammar) + TinyStories (10%, fluency).
 
+> ### ⚠️ CRITICAL — the data bins must match the model, and travel with it
+> `data/big_train.bin` and `data/big_valid.bin` are **not optional runtime files** —
+> they are load-bearing:
+> - **`big_train.bin` is the replay source for continual learning.** Every `teach()`
+>   / curiosity-learn (and the startup identity install) interleaves replay batches
+>   from it so learning a new fact does **not** erase old skills. Without replay,
+>   teaching is catastrophic (val ppl 22 → 1000+). With replay from the **wrong or
+>   dirty** corpus, every teach drags the model off its trained distribution and
+>   leaks junk into generations — the model looks broken even though the base
+>   checkpoint is fine. The bin **must be the same corpus the checkpoint was trained
+>   on**, tokenized with the **same `data/bpe.json`**.
+> - **`big_valid.bin` is what every internal scale self-calibrates from** (abstention
+>   boundary, seek-match, answer-confidence). A non-representative valid set gives
+>   wrong boundaries → the controller mis-routes (abstains/over-learns).
+>
+> These bins are **gitignored** (large, regenerable). When you move a trained
+> `pragnosia.pt` to another machine, **carry the matching `big_train.bin` +
+> `big_valid.bin` + `bpe.json` with it**, or regenerate them there with
+> `prepare_data_fast.py` using the *same* tokenizer. Never rebuild them from a
+> different/uncleaned corpus. Sanity check before use: a slice should decode to clean
+> prose/math (not HTML markup), and `H.val_ppl(base_lm, big_valid)` should land near
+> the checkpoint's reported training val ppl (~18–22 for the 176M run), not ~2.
+
 ## STEP 2 — Train the 176M brain  (ONE long run; GPU-ADAPTIVE)
 ```
 nohup python3 train_pragnosia.py > pragnosia_train.log 2>&1 &
