@@ -33,6 +33,16 @@ CoEdit (English grammar) + TinyStories (10%, fluency).
 > different/uncleaned corpus. Sanity check before use: a slice should decode to clean
 > prose/math (not HTML markup), and `H.val_ppl(base_lm, big_valid)` should land near
 > the checkpoint's reported training val ppl (~18–22 for the 176M run), not ~2.
+>
+> **Compact replay for easy transfer (lossless).** Replay only needs *distribution
+> coverage*, not full size — so `big_train.bin` ships as a **~1 GB strided subsample**
+> of the full 5.4B-token corpus, not the whole 10.8 GB. Verified no regression: teach
+> impact on val ppl and on skills (`def add → return a+b`) is identical to full
+> replay, and the integrated self-test stays 14/14. The whole transferable bundle is
+> then **~1.7 GB** (`pragnosia.pt` 0.7 + `big_train.bin` 1.0 + valid + bpe). To make
+> one, **stride-sample chunks across the WHOLE corpus** (e.g. one 4096-token chunk
+> every Nth) — never a contiguous slice, which would miss whole regions (the corpus
+> is ordered math→web). Identity / word-importance caches regenerate on first run.
 
 ## STEP 2 — Train the 176M brain  (ONE long run; GPU-ADAPTIVE)
 ```
