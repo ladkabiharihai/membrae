@@ -16,6 +16,9 @@ DEVICE = H.DEVICE
 CFG = json.load(open("pragnosia.json"))
 H.VOC, H.L = CFG["vocab"], CFG["ctx"]
 VOC = CFG["vocab"]
+MEM_STOP_GB = 2.0      # background safety floor: if free GPU VRAM drops to/below this,
+                       # save the checkpoint and stop cleanly (protects the co-resident
+                       # prod services from OOM). Resume later with --resume.
 
 def autotune():
     """Pick batch / grad-accum / precision / compile from the actual GPU."""
@@ -109,6 +112,13 @@ def main(steps, lr, resume, override_bs, grow_enabled):
             pbar.write(f"  [step {it:6d}/{steps}] loss={run_loss:.3f} lr={clr:.2e} "
                        f"eff_batch={bs*accum} {tps/1e3:.0f}K tok/s  epoch {toks/td.size(0):.2f}  "
                        f"elapsed {(time.time()-t0)/60:.0f}m")
+            if DEVICE == "cuda":                     # SELF-STOP safety floor (background-safe)
+                free_gb = torch.cuda.mem_get_info()[0] / 2**30
+                if free_gb <= MEM_STOP_GB:
+                    torch.save(m.state_dict(), CFG["ckpt"])
+                    pbar.write(f"  !! free GPU VRAM {free_gb:.2f}GB <= {MEM_STOP_GB}GB floor — "
+                               f"checkpoint saved, stopping cleanly (resume with --resume)")
+                    break
         if it % 500 == 0 or it == steps:            # validation + checkpoint
             m.eval(); tot = n = 0
             with torch.no_grad(), actx:

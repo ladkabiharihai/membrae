@@ -130,11 +130,14 @@ def n_params(m): return sum(p.numel() for p in m.parameters())
 
 # ----------------------------------------------------------------- data/eval
 def load(name):
-    return torch.from_numpy(np.fromfile(f"data/{name}.bin", dtype=np.uint16).astype(np.int64))
+    # memory-map the token bin: stays on disk, batches page in lazily (chunked) ->
+    # RAM stays ~flat instead of loading the whole corpus as int64. Read as int16
+    # (identical bytes to the uint16 ids since vocab < 32768; torch-native dtype).
+    return torch.from_numpy(np.memmap(f"data/{name}.bin", dtype=np.int16, mode="r"))
 def batch(data, bs):
     ix = torch.randint(0, data.size(0) - L - 1, (bs,))
-    x = torch.stack([data[i:i+L] for i in ix]).to(DEVICE)
-    y = torch.stack([data[i+1:i+L+1] for i in ix]).to(DEVICE)
+    x = torch.stack([data[i:i+L] for i in ix]).to(DEVICE).long()       # cast only this batch
+    y = torch.stack([data[i+1:i+L+1] for i in ix]).to(DEVICE).long()
     return x, y
 @torch.no_grad()
 def val_ppl(model, vd, iters=40, bs=24):

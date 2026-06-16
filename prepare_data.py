@@ -17,6 +17,8 @@ from datasets import load_dataset
 from tokenizers import Tokenizer, models, trainers, pre_tokenizers, decoders
 
 SEP = "\n<|endoftext|>\n"; RAW_SAMPLE = "data/tok_sample.txt"
+MATH_OVERSAMPLE = 3          # repeat math/CoT this many times in the corpus (a small model
+                            # needs to see step-by-step reasoning many times to pick it up)
 
 def size_for(params):
     """Pick (d, heads, layers, vocab) so the model ~= target params, and a token budget."""
@@ -36,31 +38,38 @@ def qa(q, a, ctx=""):
     return f"Question: {q.strip()}\n" + (f"{ctx.strip()}\n" if ctx.strip() else "") + f"Answer: {a.strip()}"
 
 def curated(cap_each=None):
-    """Yield (category, text) from the curated, high-signal sources."""
-    def capped(it):
+    """Yield (category, text) from curated sources. MATH + chain-of-thought goes
+    FIRST and is OVERSAMPLED (so a small model sees step-by-step reasoning many
+    times); the huge general set (OpenOrca) is LAST so it only fills leftover budget
+    after every smaller high-signal set is already in."""
+    def capped(it, n=cap_each):
         for i, x in enumerate(it):
-            if cap_each and i >= cap_each: break
+            if n and i >= n: break
             yield x
-    if os.path.exists("data/wiki_simple.txt"):
-        for c in open("data/wiki_simple.txt").read().split("<|endoftext|>"):
-            if len(c.strip()) > 200: yield "wiki", c.strip()
-    try:
-        for r in capped(load_dataset("Open-Orca/OpenOrca", split="train", streaming=True)):
-            if r.get("question") and r.get("response"): yield "reason", qa(r["question"], r["response"])
-    except Exception as e: print("skip orca", str(e)[:40])
+    # ---- #4/#5 MATH + chain-of-thought: the reasoning lever, oversampled, FIRST ----
+    def math_cot():
+        try:
+            for r in capped(load_dataset("openai/gsm8k","main",split="train")):
+                yield "math", qa(r["question"], r["answer"])          # answers include worked steps
+        except Exception as e: print("skip gsm8k", str(e)[:40])
+        try:
+            for r in capped(load_dataset("microsoft/orca-math-word-problems-200k", split="train")):
+                yield "math", qa(r["question"], r["answer"])
+        except Exception as e: print("skip orca-math", str(e)[:40])
+        try:
+            for r in capped(load_dataset("meta-math/MetaMathQA", split="train")):
+                q = r.get("query") or r.get("original_question"); a = r.get("response")
+                if q and a: yield "math", qa(q, a)                    # CoT solutions
+        except Exception as e: print("skip metamath", str(e)[:40])
+    for _ in range(1 if cap_each else MATH_OVERSAMPLE):               # don't oversample the tokenizer sample
+        for cat, t in math_cot(): yield cat, t
+    # ---- smaller high-signal sets, kept ahead of the big filler ----
     for repo, im, ic, om in [("tatsu-lab/alpaca","instruction","input","output"),
                              ("databricks/databricks-dolly-15k","instruction","context","response")]:
         try:
             for r in load_dataset(repo, split="train"):
                 if r[im] and r[om]: yield "reason", qa(r[im], r[om], r.get(ic) or "")
         except Exception as e: print("skip", repo, str(e)[:40])
-    try:
-        for r in load_dataset("openai/gsm8k","main",split="train"): yield "math", qa(r["question"], r["answer"])
-    except Exception as e: print("skip gsm8k", str(e)[:40])
-    try:
-        for r in capped(load_dataset("microsoft/orca-math-word-problems-200k", split="train")):
-            yield "math", qa(r["question"], r["answer"])
-    except Exception as e: print("skip orca-math", str(e)[:40])
     for repo in ["sahil2801/CodeAlpaca-20k","iamtarun/python_code_instructions_18k_alpaca"]:
         try:
             for r in load_dataset(repo, split="train"):
@@ -80,17 +89,28 @@ def curated(cap_each=None):
         for r in load_dataset("grammarly/coedit", split="train"):
             if r.get("src") and r.get("tgt"): yield "grammar", f"Fix the grammar: {r['src'].strip()}\nCorrected: {r['tgt'].strip()}"
     except Exception as e: print("skip coedit", str(e)[:40])
+    if os.path.exists("data/wiki_simple.txt"):
+        for c in open("data/wiki_simple.txt").read().split("<|endoftext|>"):
+            if len(c.strip()) > 200: yield "wiki", c.strip()
+    # ---- big general reasoning/instruction filler, LAST (fills remaining curated budget) ----
+    try:
+        for r in capped(load_dataset("Open-Orca/OpenOrca", split="train", streaming=True)):
+            if r.get("question") and r.get("response"): yield "reason", qa(r["question"], r["response"])
+    except Exception as e: print("skip orca", str(e)[:40])
 
-def web_stream():
-    """High-quality educational web text, streamed (scales to ~1.3T tokens)."""
-    ds = load_dataset("HuggingFaceFW/fineweb-edu", "sample-10BT", split="train", streaming=True)
+def web_stream(config="sample-10BT"):
+    """High-quality educational web text, streamed (scales to ~1.3T tokens).
+    `config` selects the FineWeb-Edu shard: sample-10BT (~10B tok), sample-100BT
+    (~100B), sample-350BT, or default (~1.3T). Pick one big enough for the budget."""
+    ds = load_dataset("HuggingFaceFW/fineweb-edu", config, split="train", streaming=True)
     for r in ds:
         t = (r.get("text") or "").strip()
         if len(t) > 300: yield "web", t
 
-def build(params, laptop):
+def build(params, laptop, tokens=0, web_config="sample-10BT"):
     cfg = size_for(params); VOCAB = cfg["vocab"]; target = cfg["target_tokens"]
     if laptop: target = min(target, 200_000_000)
+    if tokens: target = int(tokens)        # decouple token budget from model size
     approx_tok = lambda s: len(s) // 4                 # ~4 chars/token estimate
     print(f"target model ~{params/1e6:.0f}M params -> d={cfg['d']} layers={cfg['layers']} "
           f"vocab={VOCAB}; token budget ~{target/1e9:.2f}B", flush=True)
@@ -103,11 +123,17 @@ def build(params, laptop):
                 f.write(t + SEP); chars += len(t)
                 if chars > 300_000_000: break
             wc = 0
-            for _, t in web_stream():
+            for _, t in web_stream(web_config):
                 f.write(t + SEP); wc += len(t)
                 if wc > 200_000_000: break
         tok = Tokenizer(models.BPE(unk_token=None))
-        tok.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=True); tok.decoder = decoders.ByteLevel()
+        # #3 DIGIT-AWARE: split every digit into its own token so numbers are never
+        # merged into ragged multi-digit chunks -> place-value aligned, arithmetic learnable.
+        tok.pre_tokenizer = pre_tokenizers.Sequence([
+            pre_tokenizers.ByteLevel(add_prefix_space=True, use_regex=True),
+            pre_tokenizers.Digits(individual_digits=True),     # isolate each digit (clean roundtrip)
+        ])
+        tok.decoder = decoders.ByteLevel()
         tok.train([RAW_SAMPLE], trainers.BpeTrainer(vocab_size=VOCAB, special_tokens=["<|endoftext|>"]))
         tok.save("data/bpe.json"); os.remove(RAW_SAMPLE)
         print(f"trained BPE-{VOCAB}", flush=True)
@@ -132,7 +158,7 @@ def build(params, laptop):
             if cur_tok >= 0.45 * target: break          # cap curated at ~45% of budget
         story_budget = 0.10 * target; web_budget = target - cur_tok - story_budget
         wtok = 0
-        for cat, text in web_stream():
+        for cat, text in web_stream(web_config):
             ids = np.array(tok.encode(text).ids + [0], dtype=np.uint16); f.write(ids.tobytes())
             wtok += len(ids); counts["web"] = counts.get("web", 0) + 1
             if wtok >= web_budget: break
@@ -148,7 +174,7 @@ def build(params, laptop):
     # small held-out valid from the web stream (fresh docs)
     vtok = 0
     with open("data/big_valid.bin", "wb") as f:
-        for cat, text in web_stream():
+        for cat, text in web_stream(web_config):
             ids = np.array(tok.encode(text).ids + [0], dtype=np.uint16); f.write(ids.tobytes()); vtok += len(ids)
             if vtok > 1_000_000: break
     print(f"built: {counts}", flush=True)
@@ -164,6 +190,8 @@ if __name__ == "__main__":
     pa = argparse.ArgumentParser()
     pa.add_argument("--params", type=float, default=176e6, help="target model size (e.g. 1e9, 3e9)")
     pa.add_argument("--laptop", action="store_true", help="cap the build at ~200M tokens")
+    pa.add_argument("--tokens", type=float, default=0, help="override token budget, decoupled from model size (e.g. 20e9)")
+    pa.add_argument("--web-config", default="sample-10BT", help="FineWeb-Edu shard: sample-10BT/sample-100BT/sample-350BT/default")
     a = pa.parse_args()
-    build(a.params, a.laptop)
+    build(a.params, a.laptop, tokens=a.tokens, web_config=a.web_config)
     print("DONE.", flush=True)

@@ -11,6 +11,10 @@ learned_memory.json
 
 # archived / superseded work
 old_versions/
+_old_run_*/
+
+# model export bundles (transfer artifacts, regenerate from pragnosia.pt)
+*.tar.gz
 
 # python
 __pycache__/
