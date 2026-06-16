@@ -131,6 +131,20 @@ replay (verified: identical teach impact + 14/14). The laptop runs that 1 GB sub
 Caches that **regenerate themselves** on first run (don't need to travel): `pragnosia_id_*.pt`
 (identity-installed copy), `data/tok_selfinfo_*.pt` (word importance).
 
+### Files that MUST travel (gitignored → they do NOT come through `git pull`, and do NOT regenerate)
+- **`pragnosia.pt`** — the trained 176M language model (705 MB).
+- **`unified_brain.pt`** — the trained 302K reasoning faculties (1.2 MB, dated 2026-06-10).
+  ⚠️ **If this is missing, the 14 faculty checks run on RANDOM-INIT weights and fail → you
+  get ~4/14, NOT a broken model — just a missing file.** It does NOT regenerate. **The golden
+  `pragnosia_model.tar.gz` does NOT contain it** (only `unified_brain.py`, the code). Copy it
+  over explicitly (`scp unified_brain.pt h100:.../membrae/`).
+- **`data/big_train.bin`**, **`data/big_valid.bin`**, **`data/bpe.json`** — replay +
+  calibration + tokenizer (see above).
+
+Before doing ANY work, run `python3 brain.py test`. If it's not 14/14, first check the list
+above is present — most "regressions" here are a missing gitignored file, not a code/model bug.
+(This handover's earlier "keep 14/14" guardrail assumed these files were present.)
+
 ---
 
 ## 5. Current capabilities — rigorous probe (be honest about these)
