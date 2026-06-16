@@ -17,7 +17,7 @@ data and re-derived as the brain grows).
 ## What's here
 | File | What it is |
 |---|---|
-| `brain.py` | **The whole brain, one file** (Pragnosia): all faculties + the hybrid language model + autonomous controller, self-calibration, continual learning, honesty by self-consistency, curiosity that asks its own questions, internet look-up, self-growth. Everything you *do* with the brain is a mode here: `test` / `chat` / `child` / `ask` / `teach` / `probe`. |
+| `brain.py` | **The whole brain, one file** (Pragnosia): all faculties + the hybrid language model + autonomous controller, self-calibration, continual learning, honesty by self-consistency, curiosity that asks its own questions, internet look-up, self-growth. Answering, learning (teaching), wondering, looking things up and growing are all **intrinsic** — you just run it and talk. `brain.py test` verifies it. |
 | `s6_hybrid.py` | The brain's **language organ** — the spin–attention hybrid language model (also used by the trainer). |
 | `unified_brain.py` | The brain's **reasoning organs** — the proven faculties (reasoning, P5/P6 abstention, seek, exact accumulation, alive loop, omni) + their 14-check self-test. |
 | `grow.py` | **Neurogenesis** — function-preserving growth the brain fires itself when it saturates; the trainer also grows during training on plateau. |
@@ -35,11 +35,11 @@ regenerable). Reproduce them with `prepare_data.py` then `train_pragnosia.py`.
 ```bash
 python3 prepare_data.py --laptop        # small ~200M-token corpus for a laptop
 python3 train_pragnosia.py              # train (GPU-adaptive, OOM-safe, resumable: --resume)
-python3 brain.py test                   # full self-test: every faculty + language
-python3 brain.py chat                   # talk to it — it decides answer/seek/abstain/learn itself
-python3 brain.py child                  # raise it like a child: it wonders, looks things up, learns, grows
-python3 brain.py teach "a new fact"     # teach it persistently (it grows by itself)
-python3 brain.py probe "any prompt"     # quick one-shot decision trace
+python3 brain.py                        # it LIVES: talk to it — it answers what it knows, learns
+                                        #   what you tell it, wonders its own questions, looks up
+                                        #   what it doesn't know, and grows itself when it saturates
+python3 brain.py "What is a quasar?"    # one-shot: say anything to it, see what it does
+python3 brain.py test                   # verify it: full self-test (every faculty + language)
 ```
 
 ## Scaling (one knob)

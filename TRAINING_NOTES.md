@@ -41,8 +41,8 @@ chain-of-thought prose is often confabulated. The 176M size is the remaining cei
 ## Run / test
 ```
 python3 brain.py test            # full self-test: every faculty + language
-python3 brain.py probe "5 + 7 =" # quick one-shot decision trace
-python3 brain.py child           # raise it like a child (wonders, looks up, learns, grows)
+python3 brain.py "5 + 7 ="       # one-shot: say anything to it, see what it does
+python3 brain.py                 # it LIVES: talk to it (answers, learns, wonders, looks up, grows)
 ```
 
 ## ⚠️ Ship the data bins with the checkpoint (continual learning depends on it)

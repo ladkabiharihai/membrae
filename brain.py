@@ -16,17 +16,16 @@ separate script anymore.
     seek       -> retrieve from memory store when unsure              [P7 on language]
     teach      -> online learning + self-replay, persistent, low-forgetting [alive on language]
 
-Modes (everything is here -- no separate scripts):
-  test    full self-test: ALL faculties + language ppl + abstention + teach/recall
-  chat    interactive: it decides answer / seek / abstain / learn for itself
-  child   raise it like a child: it observes, wonders its OWN questions, looks up what
-          it doesn't know (Wikipedia), learns it, and grows itself when it saturates
-  ask     one-shot question (honest: abstains when it doesn't really know)
-  teach   teach a fact persistently, verify recall + retention
-  probe   quick non-interactive decision trace on a few prompts (or one you pass)
+Talking to it IS how it works -- answering, learning (teaching), curiosity, looking
+things up, and growing are all INTRINSIC to the brain (brain.interact), not separate
+commands. So there are only two ways to run it:
+  python3 brain.py          -> it LIVES: talk to it; it answers what it knows, learns
+                               what you tell it, wonders its own questions, looks up
+                               what it doesn't know, and grows itself when it saturates.
+  python3 brain.py test     -> verify it: full self-test (every faculty + language).
 ================================================================================
 """
-import argparse, json, math, os, time
+import json, math, os, sys, time
 import numpy as np, torch, torch.nn as nn, torch.nn.functional as F
 import unified_brain as U
 import s6_hybrid as H
@@ -410,18 +409,17 @@ class Brain(nn.Module):
             self.teach(obs, max_steps=40); tr["learned"] = True
         entity = self.wonder(obs); self._last_topic = entity
         if entity:
-            q = f"What is {entity}?"; tr["wonders"] = q
-            cons, ans = self._self_consistency(q)
+            tr["wonders"] = f"What is {entity}?"
+            cons, _ = self._self_consistency(tr["wonders"])
             if cons >= self.consistency_min:
-                tr["knows"] = ans
+                tr["knows"] = True
             else:
-                tr["didnt_know"] = True
-                provided = answer_fn(q) if answer_fn else None
+                tr["didnt_know"] = entity
+                provided = answer_fn(tr["wonders"]) if answer_fn else None
                 src = provided or self.search(entity)        # look up the ENTITY, not the sentence
                 if src:
-                    self.teach(f"{entity}: {src}" if not provided else f"{q} {src}", max_steps=40)
-                    tr["learned_answer"] = (src[:90] + "...") if len(src) > 90 else src
-                    tr["source"] = "teacher" if provided else "internet"
+                    self.teach(f"{entity}: {src}" if not provided else f"{tr['wonders']} {src}", max_steps=40)
+                    tr["looked_up"] = (src[:140] + "...") if len(src) > 140 else src
                 grew = self._maybe_grow()
                 if grew: tr["grew"] = f"{grew[0]:,} -> {grew[1]:,} params"
         return tr
@@ -435,7 +433,7 @@ class Brain(nn.Module):
         tr = {"pursuing": f"What is {topic}?"}
         info = self.learn_from_web(topic)
         if info:
-            tr["learned_from_web"] = (info[:90] + "...") if len(info) > 90 else info
+            tr["looked_up"] = (info[:140] + "...") if len(info) > 140 else info
             nt = self.wonder(info); self._last_topic = nt
             if nt: tr["now_wonders"] = f"What is {nt}?"
             grew = self._maybe_grow()
@@ -443,6 +441,37 @@ class Brain(nn.Module):
         else:
             tr["couldnt_find"] = topic; self._last_topic = None
         return tr
+
+    def interact(self, text):
+        """The brain's ONE way of engaging with anything you say -- this IS the living
+        brain, every feature intrinsic, nothing a separate command:
+          a question  -> answer it if it honestly knows (self-consistency); if not, it
+                         says so AND, curious, looks it up and LEARNS it (so next time it
+                         knows).  [answering + honesty + curiosity + internet + learning]
+          a statement -> take it in and LEARN it if the content is new, then wonder its
+                         own question about it and look that up.   [teaching is intrinsic]
+          nothing     -> follow its own train of thought (explore what it last wondered).
+        Growth fires by itself when it keeps failing to learn. There is no 'teach mode'
+        or 'child mode' -- this is just how it lives."""
+        text = (text or "").strip()
+        if not text:
+            return self.explore()
+        if text.endswith("?"):
+            cons, ans = self._self_consistency(text)
+            if cons >= self.consistency_min:
+                return {"answer": ans[:200]}
+            topic = self.wonder(text) or text.rstrip("? ").split(" ")[-1]
+            tr = {"answer": "I don't know -- let me find out.", "didnt_know": topic}
+            info = self.search(topic)                       # curious -> look it up and learn
+            if info:
+                self.teach(f"{topic}: {info}")
+                tr["looked_up"] = (info[:140] + "...") if len(info) > 140 else info
+                grew = self._maybe_grow()
+                if grew: tr["grew"] = f"{grew[0]:,} -> {grew[1]:,} params"
+            else:
+                tr["couldnt_find"] = topic
+            return tr
+        return self.think(text)                             # a statement -> learn + wonder + look up
 
     # ================= WIRED: seek (retrieve from memory) =================
     # No stopword/pronoun lists. Similarity uses self-information-weighted
@@ -630,76 +659,39 @@ def self_test(brain):
     print(f"  {npass}/14 faculties + language(ppl {ppl:.0f}) + abstain + teach/recall = WIRED")
     print("=" * 70)
 
-# ============================ CLI (all modes live here) ============================
-def _chat_loop(brain):
-    print("Brain ready (autonomous: it decides answer/seek/abstain/learn, and remembers")
-    print("what it learns across sessions). type 'quit' to exit.\n")
-    grew = False
-    while True:
-        try: msg = input("you> ").strip()
-        except (EOFError, KeyboardInterrupt): break
-        if msg.lower() in ("quit", "exit"): break
-        reply, decision = brain.respond(msg)
-        if decision.startswith("learn"): grew = True
-        print(f"bot> {reply}   [decided: {decision}]\n")
-    if grew: brain.persist(); print("\n[saved what I learned this session]")
+# ============================ run it -- it LIVES ============================
+def _show(tr):
+    """Print one cognitive step (whatever the brain did with what you said)."""
+    if "answer" in tr:         print(f"Pragnosia> {tr['answer']}")
+    if tr.get("pursuing"):     print(f"Pragnosia> (thinking on my own) chasing {tr['pursuing']}")
+    if tr.get("idle") and tr['idle'] is not True: print(f"Pragnosia> {tr['idle']}")
+    if tr.get("learned") is True:  print("   · took it in (new to me)")
+    if tr.get("knows"):        print("   · (it already knew that)")
+    if tr.get("wonders"):      print(f"   · it wonders: {tr['wonders']}")
+    if tr.get("didnt_know"):   print(f"   · didn't know '{tr['didnt_know']}' -> looked it up")
+    if tr.get("looked_up"):    print(f"   · read & learned: {tr['looked_up']}")
+    if tr.get("now_wonders"):  print(f"   · now it wonders: {tr['now_wonders']}")
+    if tr.get("couldnt_find"): print(f"   · couldn't find anything on: {tr['couldnt_find']}")
+    if tr.get("grew"):         print(f"   · !! it GREW its own brain: {tr['grew']}")
 
-def _child_loop(brain):
-    print(f"Pragnosia is awake ({brain.n_params():,} params). Tell it things, ask it")
-    print("questions, or press Enter to let it follow its own train of thought. 'quit' saves & exits.\n")
-    def show(tr):
-        if tr.get("learned"):          print("   · took it in (new content)")
-        if tr.get("wonders"):          print(f"   · it WONDERS: {tr['wonders']}")
-        if tr.get("knows"):            print(f"   · it already knows: {tr['knows'][:90]}")
-        if tr.get("didnt_know"):       print("   · it did NOT know -> went to look it up")
-        if tr.get("learned_answer"):   print(f"   · learned [{tr.get('source')}]: {tr['learned_answer']}")
-        if tr.get("pursuing"):         print(f"   · chasing its own question: {tr['pursuing']}")
-        if tr.get("learned_from_web"): print(f"   · read & learned: {tr['learned_from_web']}")
-        if tr.get("now_wonders"):      print(f"   · now it WONDERS: {tr['now_wonders']}")
-        if tr.get("couldnt_find"):     print(f"   · couldn't find anything on: {tr['couldnt_find']}")
-        if tr.get("grew"):             print(f"   · !! it GREW its brain: {tr['grew']}")
-        if tr.get("idle"):             print(f"   · {tr['idle']}")
+def live(brain):
+    print(f"Pragnosia is awake -- {brain.n_params():,} params. Just talk to it: it answers")
+    print("what it knows, learns what you tell it, wonders its own questions, and looks up")
+    print("what it doesn't know. Press Enter alone to let it think. 'quit' saves & exits.\n")
     while True:
         try: msg = input("you> ").strip()
         except (EOFError, KeyboardInterrupt): break
         if msg.lower() in ("quit", "exit"): break
-        if not msg:
-            print("Pragnosia> (thinking on my own ...)"); show(brain.explore()); print()
-        elif msg.endswith("?"):
-            r, d = brain.respond(msg); print(f"Pragnosia> {r}\n   · [{d}]\n")
-        else:
-            print("Pragnosia> (took that in)"); show(brain.think(msg)); print()
+        _show(brain.interact(msg)); print()
     brain.persist(); print("\n[saved what it learned this session]")
 
-def _probe(brain, prompts):
-    print(f"Pragnosia {brain.n_params()/1e6:.0f}M on {DEVICE}  |  knows>={brain.consistency_min:.2f}  "
-          f"new>{brain.novelty_min:.2f}\n")
-    for p in prompts:
-        r, d = brain.respond(p)
-        print(f"  PROMPT: {p!r}\n    reply: {r[:140]}\n    [{d}]\n")
-
 def main():
-    pa = argparse.ArgumentParser()
-    pa.add_argument("mode", choices=["test", "chat", "child", "ask", "teach", "probe"])
-    pa.add_argument("text", nargs="*")
-    a = pa.parse_args()
-    brain = Brain()
-    if a.mode == "test":
-        self_test(brain)
-    elif a.mode == "ask":
-        print(brain.ask(" ".join(a.text)))
-    elif a.mode == "teach":
-        fact = " ".join(a.text)
-        brain.teach(fact, persist=True); print(f"taught (persisted): {fact}")
-        print("recall:", brain.ask(fact.split(" is")[0] + "?" if " is" in fact else fact))
-    elif a.mode == "probe":
-        _probe(brain, [" ".join(a.text)] if a.text else
-               ["What is the capital of France?", "What is my phone number?",
-                "def add(a, b):", "Once upon a time"])
-    elif a.mode == "child":
-        _child_loop(brain)
+    if len(sys.argv) > 1 and sys.argv[1] == "test":
+        self_test(Brain())
+    elif len(sys.argv) > 1:                     # one-shot: say something to it, see what it does
+        _show(Brain().interact(" ".join(sys.argv[1:])))
     else:
-        _chat_loop(brain)
+        live(Brain())                           # the living brain
 
 if __name__ == "__main__":
     main()
