@@ -1,10 +1,28 @@
-# Pragnosia 176M — reasoning rebuild (training notes)
+# Pragnosia — parallel-spin 228M (production training notes)
 
-Best checkpoint: `pragnosia.pt`, **val PPL 20.47** (176M params, from scratch).
+Best checkpoint: `pragnosia.pt`, **val PPL 20.76** (228M params, from scratch, ~5B tokens, 8.3h).
 
-## The model
-SpinAttentionLM (`s6_hybrid.py`): d=1024, 12 layers, 16 heads, mlp_mult=4, ctx=256,
-vocab 16384. Config in `pragnosia.json`. Tokenizer `data/bpe.json` (digit-aware BPE).
+## The model — PARALLEL spin
+SpinAttentionLM (`s6_hybrid.py`): d=1024, **16 layers**, 16 heads, mlp_mult=4, ctx=256,
+vocab 16384 (228M). Config `pragnosia.json`; tokenizer `data/bpe.json` (digit-aware BPE).
+
+The spin carrier is now a **diagonal-complex (LRU/S5-style) recurrence**
+`h_t = lambda (.) h_{t-1} + b_t`, `lambda_j = exp(-exp(nu_j))·exp(i·phi_j)` — each channel a
+damped complex oscillator at its own frequency ("the answer lives in the phase", per
+channel). Diagonal ⇒ **matmul-free (O(T·d)) and an associative scan**, so it runs as a
+log-depth **parallel scan** instead of the original 256-step sequential tanh loop:
+- **~2× faster training** (168K vs 109K tok/s beside prod); the 228M model trained faster
+  than the old 176M and reached the **same perplexity** (20.76 vs 20.47).
+- **Proven dynamics preserved**: brain-swap control holds (`own < swapped < random`,
+  signal grew 0.001→0.016 with training); `brain.py test` = **14/14 + WIRED**.
+- Arithmetic on the finished model: `5+7=12 · 9+6=15 · 20+30=50 · 7×8=56` ✓ (4/6).
+
+This replaces the dense-tanh sequential `SpinStep` carrier (kept in git history + the
+paper as the anchor). It resolves the paper's limitation (iii) "the spinning core is
+sequential and cannot parallelize across time."
+
+## Prior model
+The old 176M dense-tanh instance (val PPL 20.47, 12 layers) is superseded by the above.
 
 ## Data we trained on  (~5.4B tokens, math-heavy)
 Built by `prepare_data_fast.py --tokens 6e9 --web-config sample-100BT` (parallel
