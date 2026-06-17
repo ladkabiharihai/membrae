@@ -125,16 +125,46 @@ section h2{font-size:clamp(30px,5vw,52px);font-weight:600;margin-bottom:8px}
 .cta a.big{display:inline-block;margin-top:24px;padding:16px 38px;background:linear-gradient(120deg,var(--c1),var(--c3));color:#fff!important;border-radius:32px;font-weight:700;font-size:17px;box-shadow:0 14px 40px rgba(124,92,255,.35);transition:.3s}
 .cta a.big:hover{transform:translateY(-3px);box-shadow:0 20px 50px rgba(124,92,255,.5)}
 footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-size:14px;text-align:center}
-@media(max-width:720px){.demo{grid-template-columns:1fr}.navlinks{display:none}}
+/* ---- 3D stage ---- */
+.stage{position:relative;height:540px;margin-top:36px;border-radius:22px;overflow:hidden;border:1px solid var(--line);
+  background:radial-gradient(700px 460px at 50% 38%,rgba(124,92,255,.10),transparent 70%);cursor:grab}
+.stage:active{cursor:grabbing}
+.stage canvas{display:block;width:100%;height:100%}
+.stage .hint3d{position:absolute;bottom:14px;left:16px;font-size:12px;color:var(--dim);font-family:'JetBrains Mono';pointer-events:none}
+.stage .leg3d{position:absolute;top:14px;right:16px;font-size:11px;color:var(--mut);font-family:'JetBrains Mono';text-align:right;pointer-events:none;line-height:1.8}
+.stage .leg3d b{color:var(--c2)}
+
+/* ---- flow diagram ---- */
+.flow{margin-top:42px;overflow-x:auto;padding:6px 2px 14px}
+.flow svg{width:100%;min-width:760px;height:auto;display:block}
+.flow .box{rx:12;}
+.flow .lbl{font-family:Inter,sans-serif;font-weight:600;font-size:13px;fill:var(--ink)}
+.flow .sub{font-family:'JetBrains Mono',monospace;font-size:10.5px;fill:var(--dim)}
+.flow .edge{fill:none;stroke:rgba(255,255,255,.16);stroke-width:1.6}
+.flow .et{font-family:'JetBrains Mono';font-size:10.5px;fill:var(--c4)}
+.flow-key{display:flex;gap:18px;flex-wrap:wrap;margin-top:16px;font-size:12.5px;color:var(--mut)}
+.flow-key span{display:flex;align-items:center;gap:7px}
+.flow-key i{width:12px;height:12px;border-radius:4px;display:inline-block}
+
+/* ---- venn ---- */
+.venn-wrap{display:grid;grid-template-columns:1.05fr .95fr;gap:34px;align-items:center;margin-top:40px}
+.venn svg{width:100%;height:auto;display:block}
+.venn-legend li{list-style:none;padding:11px 0;color:var(--mut);font-size:15px;border-bottom:1px solid var(--line);display:flex;gap:10px}
+.venn-legend li:last-child{border:none}
+.venn-legend b{color:var(--ink)}
+.venn-legend .d{flex:0 0 11px;height:11px;border-radius:50%;margin-top:6px}
+
+@media(max-width:720px){.demo{grid-template-columns:1fr}.navlinks{display:none}.venn-wrap{grid-template-columns:1fr}.stage{height:400px}}
 </style>
+<script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
 </head>
 <body>
 
 <nav><div class="wrap">
   <div class="brand"><div class="dot"></div>Pragnosia</div>
   <div class="navlinks">
-    <a href="#spin">The idea</a><a href="#proof">Proof</a><a href="#faculties">What it does</a>
-    <a href="#journey">The journey</a><a href="#roadmap">Roadmap</a><a href="compare.html" class="pill">vs. LLMs →</a>
+    <a href="#spin">The idea</a><a href="#spin3d">3D</a><a href="#faculties">Faculties</a>
+    <a href="#flow">Flow</a><a href="#journey">Journey</a><a href="#roadmap">Roadmap</a><a href="compare.html" class="pill">vs. LLMs →</a>
   </div>
 </div></nav>
 
@@ -183,6 +213,23 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
   </div>
 </div></section>
 
+<!-- 3D SPIN -->
+<section id="spin3d"><div class="wrap reveal">
+  <div class="tag">In three dimensions</div>
+  <h2>Each channel spins at its own frequency</h2>
+  <div class="two-level">
+    <p class="simple">🌐 The brain doesn't have <i>one</i> spinner — it has <b>thousands, each turning at its own speed</b>, like a sky full of planets on their own orbits. The pattern they trace together <i>is</i> the thought. Because the orbits are independent, the whole sky is computed in <b>one parallel sweep</b> instead of step-by-step — that's the ~2× speed-up. <b>Drag to look around.</b></p>
+    <details class="deep"><summary>The precise version</summary>
+      <p>The spin carrier is a <b>diagonal-complex (LRU / S5-style) recurrence</b>: <span class="mono">hₜ = λ ⊙ hₜ₋₁ + bₜ</span>, with eigenvalues <span class="mono">λⱼ = exp(−exp(νⱼ))·e^{iφⱼ}</span> — every channel <i>j</i> rotates at its own phase <span class="mono">φⱼ</span> and decays at its own rate. It's matmul-free (<span class="mono">O(T·d)</span>) and associative, so it runs as a <b>log-depth parallel scan</b> instead of a 256-step sequential loop — while keeping the answer-in-the-phase dynamics (brain-swap still holds). It replaced the original dense-tanh carrier in production.</p>
+    </details>
+  </div>
+  <div class="stage">
+    <canvas id="spin3dCanvas"></canvas>
+    <div class="leg3d">diagonal-complex carrier<br><b>each orbit = one channel</b><br>phase φⱼ · decay νⱼ</div>
+    <div class="hint3d">drag to rotate · parallel scan, not a sequential loop</div>
+  </div>
+</div></section>
+
 <!-- FACULTIES -->
 <section id="faculties"><div class="wrap reveal">
   <div class="tag">What it can do</div>
@@ -223,6 +270,94 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
     <div class="block"><div class="lbl">Substrate</div><h4>🌀 Spinning core</h4><p>Rotational dynamics that hold answers in phase. Powers reasoning, abstention, seeking, exact counting, and the alive loop — all brain-swap-verified.</p></div>
     <div class="block"><div class="lbl">Language</div><h4>🔭 Attention + parallel spin carrier</h4><p>Transformer attention gives fluent language; a gated spin “carrier” keeps a rotational memory across words. The carrier is now a <i>diagonal-complex</i> recurrence — each channel spins at its own frequency — so it runs as a <b>parallel scan</b>: <b>~2× faster</b> to train, same answer-in-the-phase dynamics (brain-swap still holds).</p></div>
     <div class="block"><div class="lbl">Glue</div><h4>🧭 Self-calibration</h4><p>What words matter, when to abstain, what counts as a memory match — all <i>derived from data</i>, never hand-set, and re-derived as the brain grows.</p></div>
+  </div>
+</div></section>
+
+<!-- FLOW -->
+<section id="flow" style="background:var(--bg2)"><div class="wrap reveal">
+  <div class="tag">The complete flow</div>
+  <h2>How it decides — for itself</h2>
+  <p class="lead">Everything it does is one intrinsic act. There's no "answer mode" or "learn mode" — it reads what you said and routes itself. Watch a pulse travel each path.</p>
+  <div class="flow">
+    <svg viewBox="0 0 980 500" role="img" aria-label="Pragnosia interact() decision flow">
+      <defs>
+        <marker id="arr" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="rgba(255,255,255,.35)"/></marker>
+      </defs>
+      <!-- INPUT -->
+      <rect x="18" y="206" width="150" height="78" rx="14" fill="rgba(124,92,255,.12)" stroke="#7c5cff"/>
+      <text class="lbl" x="93" y="238" text-anchor="middle">You say</text>
+      <text class="lbl" x="93" y="258" text-anchor="middle">something</text>
+
+      <!-- edges from input to the three lanes -->
+      <path class="edge" d="M168,228 C205,150 205,90 230,76" marker-end="url(#arr)"/>
+      <path class="edge" d="M168,245 C205,245 205,250 230,250" marker-end="url(#arr)"/>
+      <path class="edge" d="M168,262 C205,350 205,410 230,424" marker-end="url(#arr)"/>
+
+      <!-- LANE 1: QUESTION -->
+      <rect x="230" y="50" width="150" height="52" rx="12" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.12)"/>
+      <text class="lbl" x="305" y="73" text-anchor="middle">a question</text>
+      <text class="sub" x="305" y="90" text-anchor="middle">ends with “?”</text>
+      <path class="edge" d="M380,76 L430,76" marker-end="url(#arr)"/>
+      <rect x="430" y="44" width="200" height="64" rx="12" fill="rgba(35,213,171,.07)" stroke="rgba(35,213,171,.45)"/>
+      <text class="lbl" x="530" y="70" text-anchor="middle">Do I know it?</text>
+      <text class="sub" x="530" y="88" text-anchor="middle">self-consistency · sample k,</text>
+      <text class="sub" x="530" y="101" text-anchor="middle">do the answers agree?</text>
+      <path class="edge" d="M630,62 C660,50 665,40 690,34" marker-end="url(#arr)"/>
+      <text class="et" x="648" y="40">yes</text>
+      <path class="edge" d="M630,92 C660,108 665,118 690,122" marker-end="url(#arr)"/>
+      <text class="et" x="648" y="124">no</text>
+      <rect x="690" y="12" width="272" height="42" rx="11" fill="rgba(35,213,171,.10)" stroke="#23d5ab"/>
+      <text class="lbl" x="704" y="38">Answer ✓</text>
+      <rect x="690" y="98" width="272" height="58" rx="11" fill="rgba(255,209,102,.08)" stroke="#ffd166"/>
+      <text class="lbl" x="704" y="122">“I don't know — let me find out”</text>
+      <text class="sub" x="704" y="142">→ look it up (Wikipedia) → learn → answer</text>
+
+      <!-- LANE 2: STATEMENT -->
+      <rect x="230" y="224" width="150" height="52" rx="12" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.12)"/>
+      <text class="lbl" x="305" y="247" text-anchor="middle">a statement</text>
+      <text class="sub" x="305" y="264" text-anchor="middle">you told it something</text>
+      <path class="edge" d="M380,250 L430,250" marker-end="url(#arr)"/>
+      <rect x="430" y="218" width="200" height="64" rx="12" fill="rgba(124,92,255,.07)" stroke="rgba(124,92,255,.45)"/>
+      <text class="lbl" x="530" y="244" text-anchor="middle">New content?</text>
+      <text class="sub" x="530" y="262" text-anchor="middle">content-novelty · surprise</text>
+      <text class="sub" x="530" y="275" text-anchor="middle">on the rare, telling words</text>
+      <path class="edge" d="M630,236 C660,224 665,214 690,208" marker-end="url(#arr)"/>
+      <text class="et" x="648" y="214">new</text>
+      <path class="edge" d="M630,266 C660,280 665,288 690,292" marker-end="url(#arr)"/>
+      <text class="et" x="644" y="294">known</text>
+      <rect x="690" y="184" width="272" height="46" rx="11" fill="rgba(124,92,255,.10)" stroke="#7c5cff"/>
+      <text class="lbl" x="704" y="204">Learn it + wonder my own question</text>
+      <text class="sub" x="704" y="221">→ and look that up too</text>
+      <rect x="690" y="272" width="200" height="42" rx="11" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.14)"/>
+      <text class="lbl" x="704" y="298">Just reply</text>
+
+      <!-- LANE 3: EMPTY -->
+      <rect x="230" y="398" width="150" height="52" rx="12" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.12)"/>
+      <text class="lbl" x="305" y="421" text-anchor="middle">nothing</text>
+      <text class="sub" x="305" y="438" text-anchor="middle">you just press Enter</text>
+      <path class="edge" d="M380,424 L430,424" marker-end="url(#arr)"/>
+      <rect x="430" y="396" width="320" height="56" rx="12" fill="rgba(255,122,194,.07)" stroke="rgba(255,122,194,.45)"/>
+      <text class="lbl" x="590" y="420" text-anchor="middle">Explore — chase my last curiosity</text>
+      <text class="sub" x="590" y="438" text-anchor="middle">look it up → wonder the next thing → repeat</text>
+
+      <!-- GROW -->
+      <path class="edge" d="M826,156 C880,250 880,300 826,338" stroke="rgba(255,209,102,.4)" marker-end="url(#arr)"/>
+      <rect x="690" y="332" width="272" height="46" rx="11" fill="rgba(255,209,102,.06)" stroke="rgba(255,209,102,.5)"/>
+      <text class="lbl" x="704" y="352">Keep failing to learn? → GROW</text>
+      <text class="sub" x="704" y="369">add my own depth / width, function-preserving</text>
+
+      <!-- animated pulses along the two "happy" learning paths -->
+      <circle r="4.5" fill="#ffd166"><animateMotion dur="3.2s" repeatCount="indefinite"
+        path="M168,228 C205,150 205,90 230,76 L380,76 L430,76 L630,92 C660,108 665,118 690,122"/></circle>
+      <circle r="4.5" fill="#7c5cff"><animateMotion dur="3.2s" begin="1.1s" repeatCount="indefinite"
+        path="M168,245 C205,245 205,250 230,250 L380,250 L430,250 L630,236 C660,224 665,214 690,208"/></circle>
+    </svg>
+  </div>
+  <div class="flow-key">
+    <span><i style="background:#23d5ab"></i> knows → answers honestly</span>
+    <span><i style="background:#ffd166"></i> doesn't know → looks it up &amp; learns</span>
+    <span><i style="background:#7c5cff"></i> new fact → learns &amp; gets curious</span>
+    <span><i style="background:#ff7ac2"></i> idle → follows its own train of thought</span>
   </div>
 </div></section>
 
@@ -299,6 +434,39 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
     <div class="fac"><div class="ic">🔒</div><h4>Private, offline, edge AI</h4><p>Cheap enough to run anywhere with no data center — and it learns locally, so your data never has to leave.</p><div class="pf">~700MB · no cloud</div></div>
     <div class="fac"><div class="ic">🔍</div><h4>Auditable, accountable AI</h4><p>Reasoning you can causally probe (brain-swap) — for settings that demand the model show its work.</p><div class="pf">causal · interpretable</div></div>
     <div class="fac"><div class="ic">🎓</div><h4>Adaptive tutoring &amp; personalization</h4><p>Learns each individual learner continually, adapting to them over months — not a one-size static model.</p><div class="pf">per-user memory</div></div>
+  </div>
+</div></section>
+
+<!-- VENN -->
+<section id="venn"><div class="wrap reveal">
+  <div class="tag">Where it sits</div>
+  <h2>What only this brain has</h2>
+  <p class="lead">A frozen cloud LLM is brilliant at one circle. Pragnosia is built to live where all three overlap — fluent <i>and</i> causal <i>and</i> alive.</p>
+  <div class="venn-wrap">
+    <div class="venn">
+      <svg viewBox="0 0 460 440" role="img" aria-label="Venn: language, reasoning, alive — Pragnosia at the intersection">
+        <g style="mix-blend-mode:screen">
+          <circle cx="230" cy="155" r="125" fill="rgba(35,213,171,.16)" stroke="#23d5ab" stroke-width="1.5"/>
+          <circle cx="165" cy="270" r="125" fill="rgba(124,92,255,.16)" stroke="#7c5cff" stroke-width="1.5"/>
+          <circle cx="295" cy="270" r="125" fill="rgba(255,122,194,.16)" stroke="#ff7ac2" stroke-width="1.5"/>
+        </g>
+        <text x="230" y="52" text-anchor="middle" fill="#23d5ab" font-family="Inter" font-weight="700" font-size="15">Fluent language</text>
+        <text x="62" y="392" text-anchor="middle" fill="#7c5cff" font-family="Inter" font-weight="700" font-size="15">Causal reasoning</text>
+        <text x="398" y="392" text-anchor="middle" fill="#ff7ac2" font-family="Inter" font-weight="700" font-size="15">Alive &amp; honest</text>
+        <text x="230" y="120" text-anchor="middle" fill="#9aa6c8" font-family="JetBrains Mono" font-size="12">today's LLMs</text>
+        <text x="120" y="300" text-anchor="middle" fill="#6b76a0" font-family="JetBrains Mono" font-size="11">spin · brain-swap</text>
+        <text x="345" y="300" text-anchor="middle" fill="#6b76a0" font-family="JetBrains Mono" font-size="11">learns · abstains · grows</text>
+        <circle cx="230" cy="228" r="40" fill="rgba(7,9,18,.55)" stroke="rgba(255,255,255,.25)"/>
+        <text x="230" y="224" text-anchor="middle" fill="#fff" font-family="Fraunces" font-weight="900" font-size="15">Pragnosia</text>
+        <text x="230" y="242" text-anchor="middle" fill="#ffd166" font-family="JetBrains Mono" font-size="10">all three</text>
+      </svg>
+    </div>
+    <ul class="venn-legend">
+      <li><span class="d" style="background:#23d5ab"></span><div><b>Fluent language</b> — the circle LLMs own. Pragnosia is GPT-2-class here: real, but small.</div></li>
+      <li><span class="d" style="background:#7c5cff"></span><div><b>Causal reasoning</b> — answers computed in a spinning state, <i>proven</i> causal by the brain-swap test, not pattern-matched.</div></li>
+      <li><span class="d" style="background:#ff7ac2"></span><div><b>Alive &amp; honest</b> — learns new facts forever without forgetting, says “I don't know”, looks things up, and grows its own capacity.</div></li>
+      <li><span class="d" style="background:#ffd166"></span><div><b>The intersection</b> is the whole bet: a tiny brain that is fluent, genuinely reasons, and never stops living — the things a frozen model fundamentally can't be.</div></li>
+    </ul>
   </div>
 </div></section>
 
@@ -379,6 +547,44 @@ function playTeach(){const ls=document.querySelectorAll('#teach .chat-line');ls.
 ls.forEach((l,i)=>setTimeout(()=>l.classList.add('show'),400+i*900))}
 const tio=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){playTeach();tio.disconnect()}}),{threshold:.4});
 tio.observe(document.getElementById('teach'));
+
+/* ---------- 3D diagonal-complex spin (Three.js) ---------- */
+(function(){
+  if(!window.THREE){const s=document.querySelector('#spin3d .stage');if(s)s.innerHTML='<div class="hint3d" style="position:static;padding:30px">3D view needs WebGL — the carrier still runs the same parallel-scan math.</div>';return;}
+  const cvs=document.getElementById('spin3dCanvas'); if(!cvs) return;
+  let renderer; try{renderer=new THREE.WebGLRenderer({canvas:cvs,antialias:true,alpha:true});}catch(e){return;}
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  const scene=new THREE.Scene();
+  const cam=new THREE.PerspectiveCamera(52,1,.1,100); cam.position.set(0,2.6,10.5); cam.lookAt(0,0,0);
+  const group=new THREE.Group(); scene.add(group);
+  const core=new THREE.Mesh(new THREE.SphereGeometry(.42,32,32),new THREE.MeshBasicMaterial({color:0xc3b8ff}));
+  const halo=new THREE.Mesh(new THREE.SphereGeometry(.72,24,24),new THREE.MeshBasicMaterial({color:0x7c5cff,transparent:true,opacity:.12}));
+  group.add(core); group.add(halo);
+  const cols=[0x7c5cff,0x23d5ab,0xff7ac2,0xffd166], N=34, orbs=[];
+  for(let i=0;i<N;i++){
+    const R=1.3+i*0.13, col=cols[i%4], pts=[];
+    for(let a=0;a<=80;a++){const t=a/80*Math.PI*2;pts.push(new THREE.Vector3(Math.cos(t)*R,0,Math.sin(t)*R));}
+    const ring=new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:col,transparent:true,opacity:.10}));
+    const tilt=new THREE.Group(); tilt.rotation.set(i*0.55+0.3,i*1.07,i*0.21); tilt.add(ring);
+    const dot=new THREE.Mesh(new THREE.SphereGeometry(.055+Math.random()*.03,10,10),new THREE.MeshBasicMaterial({color:col}));
+    tilt.add(dot); group.add(tilt);
+    orbs.push({dot,R,freq:0.35+Math.random()*1.7,phase:Math.random()*6.28});
+  }
+  let ry=0,rx=.25,drag=false,lx=0,ly=0;
+  cvs.addEventListener('pointerdown',e=>{drag=true;lx=e.clientX;ly=e.clientY;try{cvs.setPointerCapture(e.pointerId)}catch(_){}});
+  addEventListener('pointerup',()=>drag=false);
+  addEventListener('pointermove',e=>{if(!drag)return;ry+=(e.clientX-lx)*.006;rx=Math.max(-1.2,Math.min(1.2,rx+(e.clientY-ly)*.006));lx=e.clientX;ly=e.clientY});
+  function size(){const r=cvs.getBoundingClientRect();if(!r.width)return;renderer.setSize(r.width,r.height,false);cam.aspect=r.width/r.height;cam.updateProjectionMatrix();}
+  size(); addEventListener('resize',size);
+  let t=0,run=true;
+  new IntersectionObserver(es=>es.forEach(e=>run=e.isIntersecting),{threshold:.02}).observe(cvs);
+  (function loop(){requestAnimationFrame(loop);if(!run)return;t++;
+    if(!drag)ry+=0.0017; group.rotation.y=ry; group.rotation.x=rx;
+    for(const o of orbs){const a=t*.012*o.freq+o.phase;o.dot.position.set(Math.cos(a)*o.R,0,Math.sin(a)*o.R);}
+    core.scale.setScalar(1+Math.sin(t*.05)*.07); halo.scale.setScalar(1+Math.sin(t*.03)*.1);
+    renderer.render(scene,cam);
+  })();
+})();
 </script>
 </body>
 </html>
