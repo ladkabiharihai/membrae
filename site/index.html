@@ -250,14 +250,14 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
 <section id="trained"><div class="wrap reveal">
   <div class="tag">It's not just a diagram</div>
   <h2>We trained it — here are the real numbers</h2>
-  <p class="lead">A single 176M-parameter brain, trained on the rebalanced corpus (knowledge · reasoning · math · code · chat · grammar). Early in training, but everything stayed wired.</p>
+  <p class="lead">A single <b>228M-parameter parallel-spin brain</b>, trained from scratch (~5B digit-tokenized tokens, val perplexity <b>20.8</b>). Scored like a normal LLM — and honestly.</p>
   <div class="stats">
-    <div class="stat"><div class="big">49&rarr;15.6</div><div class="lab">perplexity drops (steady, no divergence)</div></div>
-    <div class="stat"><div class="big">14/14</div><div class="lab">faculties still pass at full scale</div></div>
-    <div class="stat"><div class="big">✓</div><div class="lab">learns a new fact &amp; recalls it — no forgetting</div></div>
-    <div class="stat"><div class="big">def&nbsp;→&nbsp;✓</div><div class="lab">already writes correct code</div></div>
+    <div class="stat"><div class="big">62%</div><div class="lab">standard capability battery (knowledge · math · commonsense · code)</div></div>
+    <div class="stat"><div class="big">14/14</div><div class="lab">faculties pass; brain-swap dynamics hold</div></div>
+    <div class="stat"><div class="big">7×8=56</div><div class="lab">basic arithmetic lands (digit-tokenized)</div></div>
+    <div class="stat"><div class="big">~2×</div><div class="lab">faster to train than the old sequential spin</div></div>
   </div>
-  <div class="key" style="margin-top:22px"><b>The integrated self-test passes at 176M:</b> it reasons, knows what it doesn't know, seeks, counts exactly, learns continually without forgetting, perceives, <i>and</i> speaks real language — all in one model. It even started picking up the <i>shape</i> of step-by-step reasoning from the math data. This is at only ~0.38 of one pass through the data — facts and sharper honesty come with more training.</div>
+  <div class="key" style="margin-top:22px"><b>Real, measured results at 228M:</b> facts (Paris, Rome, Berlin, Jupiter), arithmetic (5+7=12, 7×8=56), commonsense (opposite of hot → cold), and code (<span class="mono">def add → return a+b</span>) all work; the living loop learns a new fact and wonders its own question about it. It's GPT-2-small class, so it's not frontier — and we say where it falls short below.</div>
 </div></section>
 
 <!-- HONESTY -->
@@ -266,10 +266,10 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
   <h2>What's honestly still hard</h2>
   <p class="lead">Every claim here has a number behind it — including the limits.</p>
   <div class="honest"><ul>
-    <li><b>It's small.</b> 176M params is GPT-2 class. It reasons and recalls <i>weakly</i> compared to frontier models — strength comes from scale + data, which one laptop can only partly provide.</li>
-    <li><b>Reasoning is real but shallow.</b> It genuinely does commonsense (“if it rains, the ground becomes → wet”), learned from data, not hardcoded — but gets a fair share wrong at this size.</li>
-    <li><b>Knowledge can be confidently wrong.</b> Like all small models, it can state a familiar-but-incorrect fact. Its “I don't know” catches the clearly-unknown, not the subtly-wrong.</li>
-    <li><b>Emergence is one mechanism, not many capabilities.</b> The phase-encoding strategy emerged; broad emergent skills need scale we don't have yet.</li>
+    <li><b>It's small.</b> 228M params is GPT-2 class. It reasons and recalls <i>weakly</i> compared to frontier models — strength comes from scale + data.</li>
+    <li><b>Instruction-following is weak (1/3).</b> It's a pretrained <i>base</i> model — it continues text well but doesn't yet reliably follow "translate this / list three…". That's what a post-training (instruction) phase is for.</li>
+    <li><b>Honesty has a hole on personal questions.</b> On "what am I thinking?" / "my PIN?" it over-generalizes its <i>own</i> identity ("I am Pragnosia") instead of abstaining — it can't yet tell "about <i>you</i>" from "about <i>me</i>". A <i>my</i>/<i>your</i> reasoning gap that needs scale.</li>
+    <li><b>Reasoning is shallow; knowledge can be confidently wrong.</b> Multi-digit non-round arithmetic still slips (100−25→74), and chain-of-thought prose is often confabulated even when the final answer is right.</li>
   </ul></div>
 </div></section>
 
