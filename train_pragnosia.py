@@ -129,10 +129,11 @@ def main(steps, lr, resume, override_bs, grow_enabled):
             star = "  *** new best, checkpoint saved" if ppl < best else ""
             pbar.write(f"  >> it={it:6d}  VAL_PPL={ppl:.2f}  (best {min(best,ppl):.2f})  "
                        f"loss={run_loss:.3f}  ({(time.time()-t0)/3600:.2f}h){star}")
-            if ppl < best:
-                best = ppl; no_improve = 0; torch.save(m.state_dict(), CFG["ckpt"])
-            else:
-                no_improve += 1
+            torch.save(m.state_dict(), CFG["ckpt"])      # save LATEST every val: post-training /
+            if ppl < best:                                # fine-tuning SHIFTS the model off the
+                best = ppl; no_improve = 0                # web-text valid set (ppl rises by design),
+            else:                                         # so a save-on-best gate would never fire
+                no_improve += 1                           # and the run would be lost. Latest is correct.
             # GROW-AS-YOU-TRAIN: plateau = the model has extracted what it can at
             # this size. With VRAM headroom, grow -- ALTERNATING depth (add a layer)
             # and width (widen every MLP), function-preserving (no quality loss at

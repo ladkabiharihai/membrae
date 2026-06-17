@@ -1,6 +1,25 @@
-# Pragnosia — parallel-spin 228M (production training notes)
+# Pragnosia — parallel-spin (production training notes)
 
-Best checkpoint: `pragnosia.pt`, **val PPL 20.76** (228M params, from scratch, ~5B tokens, 8.3h).
+Pretraining checkpoint: `pragnosia.pt`, **val PPL 20.76** (228M params, from scratch, ~5B tokens, 8.3h).
+
+## Post-training + SELF-GROWTH (in progress)
+After pretraining, the 228M is being **continued-trained** on an instruction-heavy, real-LLM-grade
+corpus (`prepare_posttrain.py`, ~8B tokens) to fix the weak axis (instruction-following 1/3) — with
+**growth enabled**, so it adds capacity itself on saturation:
+- **Corpus blend (8.0B):** 40% instruction/chat (**OpenHermes-2.5, SlimOrca, UltraChat-200k,
+  Tulu-3**), 19% math (**NuminaMath-CoT, OpenMathInstruct-2**, GSM8K, MetaMath), 41% world
+  (**Cosmopedia**, Wikipedia, FineWeb-Edu). Same digit tokenizer. Old pretrain corpus backed up
+  to `data/big_train_pretrain.bin`.
+- **Self-growth fired:** 228M → **240M** (depth, +1 layer) → **276M** (width, mlp 4→5) on plateaus.
+  `grow.py` is function-preserving and works on the parallel carrier (d unchanged). Growth needs
+  >4 GB free VRAM; at bs32 beside prod it self-caps ~276M (smaller batch / freeing the GPU → more).
+- **Checkpoint fix (`train_pragnosia.py`):** post-training/fine-tuning shifts the model OFF the
+  web-text valid set (val ppl rises by design), so a save-on-best gate never fires. Now it saves
+  the **latest** every val — otherwise the whole run is lost.
+- Early signal (~step 5k): instruction-following *style* emerging ("List three colors" →
+  "Here are some ways… 1. …"); arithmetic retained. Re-eval deeper into the run.
+
+`pragnosia.json` tracks the live (grown) arch (d=1024, layers=17, mlp_mult=5).
 
 ## The model — PARALLEL spin
 SpinAttentionLM (`s6_hybrid.py`): d=1024, **16 layers**, 16 heads, mlp_mult=4, ctx=256,
