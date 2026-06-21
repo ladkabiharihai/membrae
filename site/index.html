@@ -229,11 +229,11 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
 <!-- JOURNEY -->
 <section id="journey" style="background:var(--bg2)"><div class="wrap reveal">
   <div class="tag">The journey</div>
-  <h2>From a 0.3M toy to a 176M brain</h2>
+  <h2>From a 0.3M toy to a 1.4B brain — that grew itself</h2>
   <div class="stats">
     <div class="stat"><div class="big">14/14</div><div class="lab">proven faculties pass</div></div>
-    <div class="stat"><div class="big">176M</div><div class="lab">parameters (laptop max)</div></div>
-    <div class="stat"><div class="big">201M</div><div class="lab">training tokens</div></div>
+    <div class="stat"><div class="big">1.4B</div><div class="lab">parameters (self-grown from 228M)</div></div>
+    <div class="stat"><div class="big">17.35</div><div class="lab">val perplexity (best)</div></div>
     <div class="stat"><div class="big">0%</div><div class="lab">hardcoded decisions</div></div>
   </div>
   <div class="tl">
@@ -242,8 +242,9 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
     <div class="tl-item"><div class="st">S4–S6</div><h4>The hybrid breakthrough</h4><p>Spin + attention dropped perplexity <span class="num">~3×</span> while keeping the spinning reasoning intact.</p></div>
     <div class="tl-item"><div class="st">INTEGRATE</div><h4>One brain, “Pragnosia”</h4><p>Every faculty wired into a single object that decides for itself, learns continuously, and knows itself — with nothing hardcoded.</p></div>
     <div class="tl-item"><div class="st">S7</div><h4>Parallel spin</h4><p>The carrier became a diagonal-complex parallel scan — a 228M brain trained <span class="num">~2×</span> faster than the 176M, reached the <span class="num">same</span> perplexity (20.8), kept the brain-swap dynamics, and still passes 14/14.</p></div>
-    <div class="tl-item"><div class="st">S8</div><h4>Post-training on real-LLM data</h4><p>Continued training on ~8B tokens — <span class="num">40%</span> instruction/chat (OpenHermes, SlimOrca, UltraChat, Tulu-3), math (NuminaMath, OpenMathInstruct) and world knowledge (Cosmopedia, Wikipedia) — to fix instruction-following.</p></div>
-    <div class="tl-item"><div class="st">NOW</div><h4>It grows itself</h4><p>With growth enabled, the brain hit saturation and <b>added its own capacity</b> — <span class="num">228M → 276M</span> (deeper + wider), function-preserving, no separate scale run. Instruction-following is starting to emerge.</p></div>
+    <div class="tl-item"><div class="st">S8</div><h4>Post-training on real-LLM data</h4><p>Continued training on instruction/chat (OpenHermes, SlimOrca, UltraChat, Tulu-3), math (NuminaMath, OpenMathInstruct) and world knowledge (Cosmopedia, Wikipedia) — and grew 228M → 276M.</p></div>
+    <div class="tl-item"><div class="st">S9</div><h4>It grew itself to 1.4B</h4><p>On a freed H100 with growth enabled, the brain saturated and <b>added its own capacity</b> again and again — <span class="num">276M → 1.4B</span> (48 layers), function-preserving, until it hit the depth cap. No separate scale run.</p></div>
+    <div class="tl-item"><div class="st">NOW</div><h4>It tunes its own learning rate</h4><p>Over-growth left the 1.4B undertrained (ppl drifted up). So the LR became <b>adaptive</b> — it watches its own validation and <span class="num">auto-halves on degradation</span>, eases on plateau (no hardcoded schedule). The drift reversed and ppl improved past its old peak to <span class="num">17.35</span>. Best weights auto-saved.</p></div>
   </div>
 </div></section>
 
@@ -251,14 +252,14 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
 <section id="trained"><div class="wrap reveal">
   <div class="tag">It's not just a diagram</div>
   <h2>We trained it — here are the real numbers</h2>
-  <p class="lead">A single <b>228M-parameter parallel-spin brain</b>, trained from scratch (~5B digit-tokenized tokens, val perplexity <b>20.8</b>). Scored like a normal LLM — and honestly.</p>
+  <p class="lead">A single <b>1.4B-parameter parallel-spin brain</b> — born at 228M, grown to 1.4B by itself, refined to val perplexity <b>17.35</b>. Scored like a normal LLM — and honestly.</p>
   <div class="stats">
-    <div class="stat"><div class="big">62%</div><div class="lab">standard capability battery (knowledge · math · commonsense · code)</div></div>
+    <div class="stat"><div class="big">10/10</div><div class="lab">arithmetic (digit-tokenized: 23+45, 12×12, 144/12…)</div></div>
     <div class="stat"><div class="big">14/14</div><div class="lab">faculties pass; brain-swap dynamics hold</div></div>
-    <div class="stat"><div class="big">7×8=56</div><div class="lab">basic arithmetic lands (digit-tokenized)</div></div>
-    <div class="stat"><div class="big">~2×</div><div class="lab">faster to train than the old sequential spin</div></div>
+    <div class="stat"><div class="big">2/2</div><div class="lab">theory-of-mind (Sally-Anne false-belief)</div></div>
+    <div class="stat"><div class="big">17.35</div><div class="lab">val perplexity (best ever)</div></div>
   </div>
-  <div class="key" style="margin-top:22px"><b>Real, measured results at 228M:</b> facts (Paris, Rome, Berlin, Jupiter), arithmetic (5+7=12, 7×8=56), commonsense (opposite of hot → cold), and code (<span class="mono">def add → return a+b</span>) all work; the living loop learns a new fact and wonders its own question about it. It's GPT-2-small class, so it's not frontier — and we say where it falls short below.</div>
+  <div class="key" style="margin-top:22px"><b>Real, measured results at 1.4B:</b> facts (Paris, Tokyo, Jupiter, Everest, H2O, Shakespeare), arithmetic 10/10, code (<span class="mono">def add → return a+b</span>), and genuine <b>human-brain-like emergence</b> — theory-of-mind (2/2 false-belief), counterfactual (2/2), causal (2/2), metacognition, working memory. The living loop still learns a new fact and wonders about it. We say where it falls short below.</div>
 </div></section>
 
 <!-- HONESTY -->
@@ -267,10 +268,10 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
   <h2>What's honestly still hard</h2>
   <p class="lead">Every claim here has a number behind it — including the limits.</p>
   <div class="honest"><ul>
-    <li><b>It's small.</b> 228M params is GPT-2 class. It reasons and recalls <i>weakly</i> compared to frontier models — strength comes from scale + data.</li>
-    <li><b>Instruction-following is weak (1/3).</b> It's a pretrained <i>base</i> model — it continues text well but doesn't yet reliably follow "translate this / list three…". That's what a post-training (instruction) phase is for.</li>
-    <li><b>Honesty has a hole on personal questions.</b> On "what am I thinking?" / "my PIN?" it over-generalizes its <i>own</i> identity ("I am Pragnosia") instead of abstaining — it can't yet tell "about <i>you</i>" from "about <i>me</i>". A <i>my</i>/<i>your</i> reasoning gap that needs scale.</li>
-    <li><b>Reasoning is shallow; knowledge can be confidently wrong.</b> Multi-digit non-round arithmetic still slips (100−25→74), and chain-of-thought prose is often confabulated even when the final answer is right.</li>
+    <li><b>Undertrained for its size.</b> Growth added capacity (1.4B) faster than the 3-day window could train it (Chinchilla wants ≈28B tokens for 1.4B; we fed far less). Perplexity is its best ever (17.35), but precise long-tail facts still wobble (e.g. "how many continents") — more tokens, not more parameters, is the lever now.</li>
+    <li><b>Formal/abstract reasoning lags the intuitive kind.</b> It passes theory-of-mind, counterfactual and causal tests, but <i>relational analogy</i> (hand:glove::foot:?), <i>compositional/systematic generalization</i>, and <i>formal deduction</i> are still ~0 — a recognizably human-shaped profile, but a real gap.</li>
+    <li><b>Identity isn't in the weights.</b> Training "I am Pragnosia" directly <i>bleeds</i> ("capital of France → Pragnosia"), so identity is installed at <i>runtime</i> by the brain, not baked in. Self-knowledge as cognition, not a memorized string.</li>
+    <li><b>It's compute-bound, not frontier.</b> A 1.4B model at ctx-256 runs ~30K tok/s on one H100 (≈26% MFU — the spin scan is bandwidth-bound); honest emergence scores sit ~30–45% and fluctuate. Strength still comes from scale + data.</li>
   </ul></div>
 </div></section>
 
@@ -280,7 +281,7 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
   <h2>The roadmap</h2>
   <p class="lead">The mechanisms are proven. From here the work is scale, data, and pushing each faculty out of the lab — in honest, testable steps.</p>
   <div class="tl">
-    <div class="tl-item"><div class="st">NOW</div><h4>Scale the language brain</h4><p>176M parameters on a refined corpus — knowledge, reasoning, math, code, chat, grammar — training and learning on a single laptop.</p></div>
+    <div class="tl-item"><div class="st">NOW</div><h4>Train the 1.4B it grew into</h4><p>Capacity is there (1.4B, self-grown); the lever now is <b>tokens</b> — more passes over the two-window corpus (knowledge · code · physics/astro/cosmology · GI-reasoning) to crystallize the long-tail facts and lift emergence.</p></div>
     <div class="tl-item"><div class="st">NEXT</div><h4>Sharper honesty &amp; more data</h4><p>A <span class="num">trained</span> confidence head for crisp “I don't know”, plus far more reasoning-rich data — the real lever for capability.</p></div>
     <div class="tl-item"><div class="st">THEN</div><h4>Scale the living faculties</h4><p>Continuous learning from 8 facts to <span class="num">thousands</span>, real retrieval (RAG-style seeking), and relational vision &amp; audio at scale.</p></div>
     <div class="tl-item"><div class="st">VISION</div><h4>An always-on, lifelong mind</h4><p>One small brain that runs on your device, keeps learning <i>you</i> forever, never fabricates, and explains its own reasoning.</p></div>

@@ -2,11 +2,11 @@
   "vocab": 16384,
   "d": 1024,
   "heads": 16,
-  "layers": 17,
-  "mlp_mult": 5,
+  "layers": 48,
+  "mlp_mult": 12,
   "ctx": 256,
   "tokenizer": "data/bpe.json",
-  "train_bin": "big_train",
+  "train_bin": "window2_train",
   "valid_bin": "big_valid",
   "ckpt": "pragnosia.pt"
 }

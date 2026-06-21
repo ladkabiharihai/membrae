@@ -1,29 +1,68 @@
 # Pragnosia — parallel-spin (production training notes)
 
-Pretraining checkpoint: `pragnosia.pt`, **val PPL 20.76** (228M params, from scratch, ~5B tokens, 8.3h).
+Pretraining checkpoint: from-scratch 228M, **val PPL 20.76** (~5B digit-tokenized tokens, 8.3h).
+**Current best: `pragnosia_best.pt` — 1.4B params (48L), val PPL 17.35** after the Jun 19–21
+freed-GPU growth+refine run. `pragnosia.json` tracks the live arch (d=1024, **layers=48,
+mlp_mult=12**, ctx=256, vocab 16384).
 
-## Post-training + SELF-GROWTH (in progress)
-After pretraining, the 228M is being **continued-trained** on an instruction-heavy, real-LLM-grade
-corpus (`prepare_posttrain.py`, ~8B tokens) to fix the weak axis (instruction-following 1/3) — with
-**growth enabled**, so it adds capacity itself on saturation:
-- **Corpus blend (8.0B):** 40% instruction/chat (**OpenHermes-2.5, SlimOrca, UltraChat-200k,
-  Tulu-3**), 19% math (**NuminaMath-CoT, OpenMathInstruct-2**, GSM8K, MetaMath), 41% world
-  (**Cosmopedia**, Wikipedia, FineWeb-Edu). Same digit tokenizer. Old pretrain corpus backed up
-  to `data/big_train_pretrain.bin`.
-- **Self-growth fired:** 228M → **240M** (depth, +1 layer) → **276M** (width, mlp 4→5) on plateaus.
-  `grow.py` is function-preserving and works on the parallel carrier (d unchanged). Growth needs
-  >4 GB free VRAM; at bs32 beside prod it self-caps ~276M (smaller batch / freeing the GPU → more).
-- **Checkpoint fix (`train_pragnosia.py`):** post-training/fine-tuning shifts the model OFF the
-  web-text valid set (val ppl rises by design), so a save-on-best gate never fires. Now it saves
-  the **latest** every val — otherwise the whole run is lost.
-- Early signal (~step 5k): instruction-following *style* emerging ("List three colors" →
-  "Here are some ways… 1. …"); arithmetic retained. Re-eval deeper into the run.
+## Jun 19–21 freed-GPU GROWTH + REFINE run (the 276M → 1.4B story)
+After post-training (228M → 276M beside prod), prod services were stopped for a 3-day window
+and the model trained full-throttle on a freed H100 with **grow-as-you-train enabled**.
 
-`pragnosia.json` tracks the live (grown) arch (d=1024, layers=17, mlp_mult=5).
+**Self-growth fired repeatedly to the cap:** 276M → 305M → 878M → … → **1.4B (48 layers,
+mlp_mult=12)**, where it hit the safety cap (`max_layers=48`). `grow.py` is function-preserving
+(near-identity new blocks); each grow re-tunes the batch to fit. The model grew ~5× by adding
+its own capacity on saturation — no separate scale run.
+
+**Over-growth was real and we caught it:** growing faster than it could train left the fresh 1.4B
+**undertrained** — val ppl drifted *up* (19.76 → 22.8) and capability/emergence slid. Root cause:
+the original cosine schedule held lr near peak (2e-4), over-writing faster than it refined.
+
+**Fixes (now in `train_pragnosia.py`), all in the project's self-adjusting spirit:**
+- **ADAPTIVE learning rate** (no hardcoded schedule): warm up, then the **validation signal drives
+  lr** — *auto-halve* on degradation (val > best+2%), *auto-ease* ×0.7 on plateau. Mirrors
+  grow-on-saturation; `--lr` is just the initial seed, so a too-high start self-corrects.
+- **Save-on-BEST** (`pragnosia_best.pt`): lowest-ppl weights are preserved alongside the resumable
+  `latest` — refinement can no longer silently overwrite the good model.
+- **Background-thread prefetcher** (`s6_hybrid.Prefetcher`, `PREFETCH=1`): overlaps the memmap
+  gather + pinned H2D copy with compute (GPU util 90% → 99%; the model is compute/bandwidth-bound
+  so wall-clock gain is small, but utilization is clean).
+
+**Refine run result:** with the adaptive lr the drift fully reversed and the model **improved past
+its old peak → val PPL 17.35** (best ever; was 20.5 → 19.65 → **17.35**).
+
+### Final test results (best 1.4B model, `pragnosia_best.pt`, ppl 17.35)
+- **Faculties: 14/14 wired** + teach/recall (continual learning) ✓
+- **Arithmetic: 10/10** — `23+45=68 · 100−37=63 · 12×12=144 · 250+250=500 · 9×7=63 · 144/12=12 · 1000−1=999`
+- **Knowledge ~7/8** — Paris, Tokyo, Shakespeare, **Jupiter**, H2O, Everest, Portuguese (miss: continents)
+- **Human-cognition emergence 9/20 (45%)** — **Theory-of-Mind 2/2** (Sally-Anne false belief),
+  **Counterfactual 2/2**, **Causal 2/2**, **Metacognition 1/1**, working-memory, category-formation
+- **Unmemorizable in-context emergence ~30%** — binds made-up words/entities/facts, abstracts numeric rules
+- **Honest gaps:** relational analogy (0/3), compositional/systematic generalization (0/2), formal
+  deduction; precise long-tail facts still wobble (the undertraining-for-size signature — Chinchilla
+  ≈28B tokens for 1.4B, the window fed far less). Identity is NOT in the weights (it bleeds when
+  injected — see `identity_sentences.txt`); it is installed at runtime by `brain.py`.
+
+### Two-window scaling data (`prepare_scale.py`, on the 3.2 TB NVMe)
+Built two purpose-proportioned corpora, each containing ALL requested data types:
+- **window1** (~20B, beside-prod): weighted to new skills — instruction 12% · math 12% ·
+  **code 14% · science 14% · reasoning 16%** · knowledge 32%.
+- **window2** (~160B, freed-GPU growth): knowledge-heavy fuel — 64% knowledge, every skill at scale.
+- **Science** (physics/astro/particle/cosmology/bio/chem): `common-pile/arxiv_papers_filtered`
+  full papers (bulk) + `camel-ai` physics/chem/bio + arXiv abstracts. **Code:** glaive-code-assistant
+  + Magicoder + evol-codealpaca (the-stack/starcoder are gated; codeparrot dies on bad parquet rows).
+  **Reasoning (“GI reasoning”):** synthetic **kinship** (random family trees, true relation via LCA) +
+  abstract **pattern/analogy** + **ARC-AGI** small grids + bAbI + BBH + ANLI + RuleTaker + Open-Platypus.
+- **Build engineering:** pipelined `encode_fast` (producer thread overlaps stream-decode with
+  `encode_batch`), sharded multi-worker builds (`split_dataset_by_node`), resilient per-source
+  try/except. Helpers: `status.sh`, `resume.sh` (adaptive-lr resume), `faculty_test.sh`
+  (CPU-only, snapshot, never interrupts training).
 
 ## The model — PARALLEL spin
-SpinAttentionLM (`s6_hybrid.py`): d=1024, **16 layers**, 16 heads, mlp_mult=4, ctx=256,
-vocab 16384 (228M). Config `pragnosia.json`; tokenizer `data/bpe.json` (digit-aware BPE).
+SpinAttentionLM (`s6_hybrid.py`): d=1024, 16 heads, ctx=256, vocab 16384 (digit-aware BPE,
+`data/bpe.json`). Born at 16L/mlp4 (228M); **grown by grow-as-you-train to 48L/mlp12 (1.4B)** —
+depth/width are the only things growth changes (d fixed), so the parallel carrier is unaffected.
+Config `pragnosia.json` always tracks the live arch (now layers=48, mlp_mult=12).
 
 The spin carrier is now a **diagonal-complex (LRU/S5-style) recurrence**
 `h_t = lambda (.) h_{t-1} + b_t`, `lambda_j = exp(-exp(nu_j))·exp(i·phi_j)` — each channel a

@@ -61,6 +61,34 @@ def fit_batch(m, td, start_bs, bf16):
             bs = int(bs * 0.7)
     return 1
 
+# ---- optional identity injection: feed Pragnosia's name-binding sentences gently every
+# few steps, interleaved with the main corpus, so a stable self-concept settles into the
+# weights without dominating (mirrors brain.py's gentle, many-phrasing teach). Env-gated:
+#   PRAGNOSIA_IDENTITY=identity_sentences.txt  IDENTITY_EVERY=50  IDENTITY_LR=2e-5
+def _load_identity(path):
+    from tokenizers import Tokenizer
+    tok = Tokenizer.from_file(CFG["tokenizer"])
+    seqs = []
+    for line in open(path):
+        s = line.strip()
+        if not s or s.startswith("#"): continue
+        ids = tok.encode(s).ids[:CFG["ctx"]]
+        if len(ids) >= 2: seqs.append(ids)
+    print(f"[identity] loaded {len(seqs)} sentences from {path}", flush=True)
+    return seqs
+
+def _identity_batch(seqs, bs):
+    import random
+    pick = random.sample(seqs, min(bs, len(seqs)))
+    L = max(len(s) for s in pick)
+    x = torch.zeros(len(pick), L - 1, dtype=torch.long, device=DEVICE)
+    y = torch.full((len(pick), L - 1), -100, dtype=torch.long, device=DEVICE)   # -100 = ignore pad
+    for i, s in enumerate(pick):
+        xi, yi = s[:-1], s[1:]
+        x[i, :len(xi)] = torch.tensor(xi, device=DEVICE)
+        y[i, :len(yi)] = torch.tensor(yi, device=DEVICE)
+    return x, y
+
 def main(steps, lr, resume, override_bs, grow_enabled):
     torch.manual_seed(0); np.random.seed(0)
     cfg = autotune()
@@ -81,10 +109,24 @@ def main(steps, lr, resume, override_bs, grow_enabled):
           f"bs={bs} accum={accum} (eff {bs*accum}) bf16={bf16} compile={cfg['compile']} | "
           f"train_toks={td.size(0):,}", flush=True)
     opt = torch.optim.AdamW(m.parameters(), lr=lr, weight_decay=0.05, betas=(0.9, 0.95))
+    # identity injection (optional, env-gated)
+    id_path = os.environ.get("PRAGNOSIA_IDENTITY")
+    id_seqs = _load_identity(id_path) if id_path and os.path.exists(id_path) else None
+    id_every = int(os.environ.get("IDENTITY_EVERY", "50"))
+    id_lr = float(os.environ.get("IDENTITY_LR", "1e-4"))                      # brain.py's proven gentle teach lr
+    id_opt = torch.optim.AdamW(m.parameters(), lr=id_lr, betas=(0.9, 0.95)) if id_seqs else None
+    # background-thread batch prefetcher (overlaps data prep with compute). PREFETCH=0 to disable.
+    use_prefetch = os.environ.get("PREFETCH", "1") != "0"
+    pf = H.Prefetcher(td, bs, depth=4) if use_prefetch else None
+    def get_batch():
+        return pf.next() if pf else H.batch(td, bs)
     warm = 2000
+    # ADAPTIVE lr (no fixed schedule): warm up, then let the VAL signal drive it — halve on
+    # degradation, ease on plateau (mirrors grow-on-saturation). lr_scale self-tunes; --lr is
+    # just the initial peak. So a too-high start auto-corrects instead of silently degrading.
+    lr_scale, lr_wait, lr_patience = 1.0, 0, 3
     def lr_at(it):
-        if it < warm: return it / warm
-        pr = (it - warm) / max(1, steps - warm); return 0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * pr))
+        return min(1.0, it / warm) * lr_scale
     actx = torch.autocast("cuda", dtype=torch.bfloat16) if bf16 else torch.autocast("cuda", enabled=False)
     from tqdm import tqdm
     best, t0, run_loss = 1e9, time.time(), None
@@ -97,13 +139,20 @@ def main(steps, lr, resume, override_bs, grow_enabled):
         for g in opt.param_groups: g["lr"] = clr
         opt.zero_grad()
         for _ in range(accum):                       # gradient accumulation
-            x, y = H.batch(td, bs)
+            x, y = get_batch()
             with actx:
                 loss = F.cross_entropy(fwd(x).reshape(-1, VOC), y.reshape(-1)) / accum
             loss.backward()
         torch.nn.utils.clip_grad_norm_(m.parameters(), 1.0); opt.step()
         l = loss.item() * accum
         run_loss = l if run_loss is None else 0.92 * run_loss + 0.08 * l
+        if id_seqs and it % id_every == 0:           # gentle identity nudge, interleaved
+            id_opt.zero_grad()
+            xi, yi = _identity_batch(id_seqs, min(16, bs))
+            with actx:
+                il = F.cross_entropy(fwd(xi).reshape(-1, VOC), yi.reshape(-1), ignore_index=-100)
+            il.backward()
+            torch.nn.utils.clip_grad_norm_(m.parameters(), 1.0); id_opt.step()
         toks = it * bs * accum * CFG["ctx"]; tps = toks / (time.time() - t0)
         # live progress bar (updates every step; throttled write to log)
         pbar.set_postfix_str(f"loss={run_loss:.3f} lr={clr:.1e} ppl*={best if best<1e8 else 0:.1f} "
@@ -129,11 +178,19 @@ def main(steps, lr, resume, override_bs, grow_enabled):
             star = "  *** new best, checkpoint saved" if ppl < best else ""
             pbar.write(f"  >> it={it:6d}  VAL_PPL={ppl:.2f}  (best {min(best,ppl):.2f})  "
                        f"loss={run_loss:.3f}  ({(time.time()-t0)/3600:.2f}h){star}")
-            torch.save(m.state_dict(), CFG["ckpt"])      # save LATEST every val: post-training /
-            if ppl < best:                                # fine-tuning SHIFTS the model off the
-                best = ppl; no_improve = 0                # web-text valid set (ppl rises by design),
-            else:                                         # so a save-on-best gate would never fire
-                no_improve += 1                           # and the run would be lost. Latest is correct.
+            torch.save(m.state_dict(), CFG["ckpt"])      # save LATEST every val (resumable)
+            if ppl < best:                                # ALSO protect the BEST: refinement runs can
+                best = ppl; no_improve = 0; lr_wait = 0   # drift worse at too-high lr, and latest-only
+                torch.save(m.state_dict(), "pragnosia_best.pt")   # would overwrite the good weights.
+            else:                                         # pragnosia_best.pt = lowest-ppl checkpoint.
+                no_improve += 1; lr_wait += 1
+                # ADAPTIVE lr: react to the val signal instead of a hardcoded value
+                if it > warm and ppl > best * 1.02 and lr_scale > 0.02:        # clearly degrading -> halve
+                    lr_scale *= 0.5; lr_wait = 0
+                    pbar.write(f"  ~~ lr auto-CUT (val {ppl:.2f} > best {best:.2f}+2%) -> lr {lr*lr_scale:.2e} (scale {lr_scale:.3f})")
+                elif lr_wait >= lr_patience and lr_scale > 0.02:               # plateaued -> ease down
+                    lr_scale *= 0.7; lr_wait = 0
+                    pbar.write(f"  ~~ lr auto-EASED (plateau) -> lr {lr*lr_scale:.2e} (scale {lr_scale:.3f})")
             # GROW-AS-YOU-TRAIN: plateau = the model has extracted what it can at
             # this size. With VRAM headroom, grow -- ALTERNATING depth (add a layer)
             # and width (widen every MLP), function-preserving (no quality loss at
@@ -160,6 +217,9 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                         json.dump(CFG, open("pragnosia.json", "w"), indent=2)   # in sync for --resume
                         bs, accum = nb, max(1, 64 // nb)
                         opt = torch.optim.AdamW(m.parameters(), lr=lr, weight_decay=0.05, betas=(0.9, 0.95))
+                        if id_seqs: id_opt = torch.optim.AdamW(m.parameters(), lr=id_lr, betas=(0.9, 0.95))  # retarget grown params
+                        if pf: pf._stop = True; pf = H.Prefetcher(td, bs, depth=4)   # rebuild for new bs
+                        def get_batch(): return pf.next() if pf else H.batch(td, bs)
                         fwd = torch.compile(m, dynamic=False) if cfg["compile"] else m
                         torch.save(m.state_dict(), CFG["ckpt"]); no_improve = 0; best = ppl; grow_count += 1
                         pbar.write(f"  ## GREW ({mode}) -> {len(m.blocks)}L mlp_mult={m.mlp_mult}  "

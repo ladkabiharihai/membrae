@@ -166,6 +166,37 @@ def batch(data, bs):
     x = torch.stack([data[i:i+L] for i in ix]).to(DEVICE).long()       # cast only this batch
     y = torch.stack([data[i+1:i+L+1] for i in ix]).to(DEVICE).long()
     return x, y
+
+
+class Prefetcher:
+    """Background-thread batch loader: builds the next batch (memmap gather + pinned H2D
+    copy on a side stream) WHILE the GPU computes the current one, hiding the synchronous
+    data-prep stall behind compute. Same sampling distribution as batch(); drop-in via next()."""
+    def __init__(self, data, bs, depth=3):
+        import threading, queue
+        self.data, self.bs = data, bs
+        self.q = queue.Queue(maxsize=depth)
+        self.cuda = (DEVICE == "cuda")
+        self.stream = torch.cuda.Stream() if self.cuda else None
+        self._stop = False
+        self.t = threading.Thread(target=self._worker, daemon=True); self.t.start()
+    def _worker(self):
+        n = self.data.size(0) - L - 1
+        while not self._stop:
+            ix = torch.randint(0, n, (self.bs,))
+            xc = torch.stack([self.data[i:i+L] for i in ix])           # int16 CPU gather
+            yc = torch.stack([self.data[i+1:i+L+1] for i in ix])
+            if self.cuda:
+                xc, yc = xc.pin_memory(), yc.pin_memory()
+                with torch.cuda.stream(self.stream):
+                    x = xc.to(DEVICE, non_blocking=True).long()        # async H2D + cast on side stream
+                    y = yc.to(DEVICE, non_blocking=True).long()
+                self.stream.synchronize()                              # copy done -> safe to hand off
+                self.q.put((x, y))
+            else:
+                self.q.put((xc.long(), yc.long()))
+    def next(self):
+        return self.q.get()
 @torch.no_grad()
 def val_ppl(model, vd, iters=40, bs=24):
     model.eval(); tot = n = 0
