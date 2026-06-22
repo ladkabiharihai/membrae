@@ -506,6 +506,48 @@ class Brain(nn.Module):
             tr["couldnt_find"] = topic; self._last_topic = None
         return tr
 
+    # ================= COGNITION: introspect, deliberate, monologue =================
+    @torch.no_grad()
+    def _introspect(self, question):
+        """METACOGNITION -- the brain's read on its OWN state for this question: how sure it is
+        (self-consistency), whether it knows, and what to do next. Its confidence is its own signal."""
+        cons, ans = self._self_consistency(question)
+        knows = cons >= self.consistency_min
+        return {"confidence": round(float(cons), 2), "knows": bool(knows), "answer": ans,
+                "self": ("sure" if cons >= self.consistency_min + 0.2 else
+                         "fairly sure" if knows else "unsure -- reason it out or look it up")}
+
+    def _deliberate(self, question):
+        """DELIBERATION -- reason step-by-step on a scratchpad (its own generation) before
+        answering, instead of a single-shot guess; the reasoning can draw on the subconscious."""
+        return self.generate_text(f"{question} Let's think step by step.", n=60, recall=True)
+
+    def think_aloud(self, seed=None, steps=4):
+        """AUTONOMOUS INTERNAL MONOLOGUE -- a self-driven train of thought. It takes a topic (its
+        own curiosity), REFLECTS on it (deliberates), notices if it's LOOPING (metacognition),
+        LEARNS what's genuinely new (consolidation), and WONDERS the next topic from its OWN
+        thought -- chaining onward by itself. Composes memory + metacognition + deliberation +
+        curiosity into one living loop. Returns the monologue trace."""
+        topic = seed or self._last_topic
+        monologue, seen = [], set()
+        for _ in range(steps):
+            if not topic: break
+            thought = self._deliberate(f"Tell me about {topic}.")
+            stuck = topic.lower() in seen                          # metacognition: am I going in circles?
+            seen.add(topic.lower())
+            entry = {"topic": topic, "thought": thought[:140], "stuck": stuck}
+            if self.learn and not stuck and self._novelty(thought) > self.novelty_min:
+                self.teach(thought, max_steps=20); entry["learned"] = True   # consolidate a novel reflection
+            nxt = self.wonder(thought)                             # curiosity: next topic from its own thought
+            if stuck or not nxt or nxt.lower() == topic.lower():   # looping -> look OUTWARD to break free
+                info = self.search(topic) if self.learn else None
+                nxt = self.wonder(info) if info else None
+                entry["broke_loop"] = bool(nxt)
+            topic = nxt; self._last_topic = topic
+            monologue.append(entry)
+            if stuck and not nxt: break
+        return monologue
+
     def interact(self, text):
         """The brain's ONE way of engaging with anything you say -- this IS the living
         brain, every feature intrinsic, nothing a separate command:
@@ -518,14 +560,17 @@ class Brain(nn.Module):
         Growth fires by itself when it keeps failing to learn. There is no 'teach mode'
         or 'child mode' -- this is just how it lives."""
         text = (text or "").strip()
-        if not text:
-            return self.explore() if self.learn else {"answer": "(I'm listening.)"}
+        if not text:                                    # nothing said -> think on its own (autonomous monologue)
+            return {"monologue": self.think_aloud(steps=4)} if self.learn else {"answer": "(I'm listening.)"}
         if text.endswith("?"):
             cons, ans = self._self_consistency(text)    # answer only if it HONESTLY knows
             if cons >= self.consistency_min:
                 return {"answer": ans[:200]}
             if not self.learn:                              # inference-only: just be honest
                 return {"answer": "I don't know."}
+            reasoned = self._deliberate(text)               # not directly sure -> DELIBERATE before giving up
+            if self._self_consistency(f"{text} {reasoned}")[0] >= self.consistency_min:
+                return {"answer": reasoned[:200], "deliberated": True}
             topic = self.wonder(text) or text.rstrip("? ").split(" ")[-1]
             tr = {"answer": "I don't know -- let me find out.", "didnt_know": topic}
             info = self.search(topic)                       # curious -> look it up and learn
@@ -774,7 +819,12 @@ def self_test(brain):
 # ============================ run it -- it LIVES ============================
 def _show(tr):
     """Print one cognitive step (whatever the brain did with what you said)."""
-    if "answer" in tr:         print(f"Pragnosia> {tr['answer']}")
+    if "answer" in tr:         print(f"Pragnosia> {tr['answer']}" + ("   [reasoned it out]" if tr.get("deliberated") else ""))
+    if tr.get("monologue"):                                        # autonomous internal monologue
+        print("Pragnosia> (thinking to myself...)")
+        for s in tr["monologue"]:
+            tag = " [stuck -> looking outward]" if s.get("stuck") else (" [learned]" if s.get("learned") else "")
+            print(f"   · {s['topic']}: {s['thought']}{tag}")
     if tr.get("pursuing"):     print(f"Pragnosia> (thinking on my own) chasing {tr['pursuing']}")
     if tr.get("idle") and tr['idle'] is not True: print(f"Pragnosia> {tr['idle']}")
     if tr.get("learned") is True:  print("   · took it in (new to me)")
