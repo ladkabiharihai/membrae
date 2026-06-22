@@ -55,7 +55,7 @@ Built two purpose-proportioned corpora, each containing ALL requested data types
   abstract **pattern/analogy** + **ARC-AGI** small grids + bAbI + BBH + ANLI + RuleTaker + Open-Platypus.
 - **Build engineering:** pipelined `encode_fast` (producer thread overlaps stream-decode with
   `encode_batch`), sharded multi-worker builds (`split_dataset_by_node`), resilient per-source
-  try/except. Helpers: `status.sh`, `resume.sh` (adaptive-lr resume), `faculty_test.sh`
+  try/except. Helpers: `ops.sh status`, `ops.sh resume` (adaptive-lr resume), `ops.sh test`
   (CPU-only, snapshot, never interrupts training).
 
 ## The model — PARALLEL spin
@@ -83,7 +83,7 @@ sequential and cannot parallelize across time."
 The old 176M dense-tanh instance (val PPL 20.47, 12 layers) is superseded by the above.
 
 ## Data we trained on  (~5.4B tokens, math-heavy)
-Built by `prepare_data_fast.py --tokens 6e9 --web-config sample-100BT` (parallel
+Built by `prepare_scale.py --tokens 6e9 --web-config sample-100BT` (parallel
 `encode_batch` tokenization). Final mix (`built:` counts):
 - **math 1,807,524 docs** — GSM8K + Orca-Math + **MetaMathQA**, with full chain-of-thought
   worked solutions, **oversampled 3×** and placed FIRST in the mix.
@@ -105,8 +105,8 @@ Built by `prepare_data_fast.py --tokens 6e9 --web-config sample-100BT` (parallel
   the checkpoint and stops cleanly (safe to co-run with the prod GPU services). Unchanged otherwise.
 - **`run_fast.py`** (new) — wrapper that force-enables `torch.compile` (fuses the spin recurrence)
   WITHOUT editing the trainer; ~1.3–1.8× speedup.
-- **`prepare_data_fast.py`** (new) — parallel `encode_batch` corpus builder (all cores).
-- **`prepare_data_shard.py`** (new) — multiprocess sharded builder (for very large corpora).
+- **`prepare_scale.py`** (new) — parallel `encode_batch` corpus builder (all cores).
+- **`prepare_scale.py`** (new) — multiprocess sharded builder (for very large corpora).
 
 ## Result
 Old 176M (old tokenizer, ~2% math): could not do arithmetic (`5 + 7 = 8`).

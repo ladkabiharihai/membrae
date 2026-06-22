@@ -29,7 +29,7 @@ CoEdit (English grammar) + TinyStories (10%, fluency).
 > These bins are **gitignored** (large, regenerable). When you move a trained
 > `pragnosia.pt` to another machine, **carry the matching `big_train.bin` +
 > `big_valid.bin` + `bpe.json` with it**, or regenerate them there with
-> `prepare_data_fast.py` using the *same* tokenizer. Never rebuild them from a
+> `prepare_scale.py` using the *same* tokenizer. Never rebuild them from a
 > different/uncleaned corpus. Sanity check before use: a slice should decode to clean
 > prose/math (not HTML markup), and `H.val_ppl(base_lm, big_valid)` should land near
 > the checkpoint's reported training val ppl (~18–22 for the 176M run), not ~2.

@@ -65,7 +65,7 @@ this H100. The H100 is where it scales up.
 | `unified_brain.py` | The **reasoning organs**: the proven faculties (reasoning, P5/P6 abstention, seek, exact accumulation, alive loop, omni) + their 14-check `self_test`. |
 | `grow.py` | **Neurogenesis**: function-preserving `grow_depth` / `grow_width`; the brain fires this itself when saturated. |
 | `train_pragnosia.py` | GPU-adaptive trainer (auto-tunes batch/precision/accum, OOM-safe, resumable, grows on plateau). |
-| `prepare_data.py` / `prepare_data_fast.py` / `prepare_data_shard.py` | Build the corpus + digit-aware BPE tokenizer. `_fast` = parallel builder, `_shard` = multiprocess for very large corpora. |
+| `prepare_data.py` / `prepare_scale.py` / `prepare_scale.py` | Build the corpus + digit-aware BPE tokenizer. `_fast` = parallel builder, `_shard` = multiprocess for very large corpora. |
 | `run_fast.py` | Wrapper that force-enables `torch.compile` for training speed. |
 | `pragnosia.json` | The config (size, vocab, data bins, checkpoint). Edit to scale. |
 | `RUNBOOK.md` / `TRAINING_NOTES.md` / `README.md` | How to run / the 176M training notes / the overview. **Read `RUNBOOK.md` STEP 1 — the data-bins warning is critical.** |
@@ -191,7 +191,7 @@ The H100 is for the things the laptop can't do. In rough priority:
 1. **Fix identity + honesty bleed** (§6 #1–2) — do this first; it's cheap and it's a
    core-goal failure. Re-run the probe (inline) to confirm before/after.
 2. **Rebalance the corpus and retrain/continue** to fix definitions + general knowledge.
-   The current mix is too math-heavy. `prepare_data_fast.py` controls the mix; aim for more
+   The current mix is too math-heavy. `prepare_scale.py` controls the mix; aim for more
    encyclopedic/world knowledge while keeping math (don't lose the arithmetic win). See
    `TRAINING_NOTES.md` for the current mix and `prepare_data*.py` for the knobs.
 3. **Scale the model.** Pipeline is scale-aware: `python3 prepare_data.py --params 1e9`
