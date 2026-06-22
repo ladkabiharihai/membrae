@@ -192,6 +192,35 @@ def reasoning_stream():
     HF sets (weight) lead while available; the infinite synthetic streams fill any larger cap."""
     return interleave([(hf_reasoning(), 4), (family_stream(), 2), (pattern_stream(), 1), (arc_stream(), 1)])
 
+def cot_stream():
+    """Long multi-step CHAIN-OF-THOUGHT at scale — the model's weakest axis. Bulk is
+    OpenMathReasoning (~3.2M problems, full ~5K-token worked solutions) + OpenThoughts2 reasoning
+    traces + OpenMathInstruct-2 (full, uncapped) + NuminaMath-CoT. Clipped at 16K chars (~4K tok)
+    so the full reasoning CHAIN survives (the chain is the signal); trainer samples 256-tok windows."""
+    try:
+        for r in load_dataset("nvidia/OpenMathReasoning", split="cot", streaming=True):
+            q = (r.get("problem") or "").strip(); a = (r.get("generated_solution") or "").strip()
+            if q and a: yield f"<user> {q}\n<assistant> {a}"[:16000]
+    except Exception as e: print("skip OpenMathReasoning", str(e)[:40], flush=True)
+    try:
+        for r in load_dataset("open-thoughts/OpenThoughts2-1M", split="train", streaming=True):
+            cv = r.get("conversations") or []
+            if len(cv) >= 2:
+                u = (cv[0].get("value") or cv[0].get("content") or "").strip()
+                a = (cv[1].get("value") or cv[1].get("content") or "").strip()
+                if u and a: yield f"<user> {u}\n<assistant> {a}"[:16000]
+    except Exception as e: print("skip OpenThoughts2", str(e)[:40], flush=True)
+    try:
+        for r in load_dataset("nvidia/OpenMathInstruct-2", split="train", streaming=True):
+            q = (r.get("problem") or "").strip(); a = (r.get("generated_solution") or "").strip()
+            if q and a: yield f"<user> {q}\n<assistant> {a}"[:16000]
+    except Exception as e: print("skip OpenMathInstruct-2", str(e)[:40], flush=True)
+    try:
+        for r in load_dataset("AI-MO/NuminaMath-CoT", split="train", streaming=True):
+            q = (r.get("problem") or "").strip(); a = (r.get("solution") or "").strip()
+            if q and a: yield f"<user> {q}\n<assistant> {a}"[:16000]
+    except Exception as e: print("skip NuminaMath-CoT", str(e)[:40], flush=True)
+
 def interleave(weighted):
     """Round-robin generators by integer weight so ANY prefix keeps the target proportions.
     Exhausted (finite) generators drop out; infinite ones fill the remainder of a large cap."""
@@ -236,6 +265,7 @@ SRC = {
     "code":        lambda web: code_stream(),
     "science":     lambda web: science_stream(),
     "reasoning":   lambda web: reasoning_stream(),
+    "cot":         lambda web: cot_stream(),
     "world":       lambda web: world_mix(web),
 }
 
@@ -255,6 +285,9 @@ WINDOWS = {
     # code is capped low — non-gated code-at-scale is scarce (the-stack gated, codeparrot bad rows).
     "topup": dict(total=10e9, web="sample-100BT",
                   props=dict(science=.80, code=.20)),
+    # long multi-step CoT top-up — the weak axis. ~18B of OpenMathReasoning + OpenThoughts2 +
+    # OpenMathInstruct. Built once, then APPENDED into the existing window1/window2 corpora.
+    "cot": dict(total=18e9, web="sample-100BT", props=dict(cot=1.0)),
 }
 
 def encode_fast(f, src, budget, tok, t0, label, batch=2000):

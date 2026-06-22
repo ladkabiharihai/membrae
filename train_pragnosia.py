@@ -152,6 +152,18 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     # known-good checkpoint -- save-on-best only fires on a real improvement.
     best = H.val_ppl(m, vd, iters=15) if (resume and os.path.exists(CFG["ckpt"])) else 1e9
     if best < 1e9: print(f"resumed model val_ppl={best:.2f} -- will only save if training beats it", flush=True)
+    # RESUME CONTINUES, not restarts: restore the step counter + adaptive-lr state from a sidecar
+    # so --resume picks up where it left (no re-warmup from 0, no lr_scale reset). Weights already
+    # loaded above; best is re-validated above so it's never lost. Data is sampled at RANDOM offsets
+    # across the whole corpus (see H.batch), so any stop point has already seen all data types.
+    state_path = CFG["ckpt"].rsplit(".", 1)[0] + "_state.json"
+    start_it, step_base = 1, 0
+    if resume and os.path.exists(state_path):
+        try:
+            st = json.load(open(state_path)); start_it = int(st.get("step", 0)) + 1; step_base = start_it - 1
+            lr_scale = float(st.get("lr_scale", lr_scale)); lr_wait = int(st.get("lr_wait", lr_wait))
+            print(f"resumed STATE: continuing at step {start_it} (lr_scale {lr_scale:.3f}) -- not restarting from 0", flush=True)
+        except Exception as e: print("state restore skipped:", str(e)[:50], flush=True)
     t0, run_loss = time.time(), None
     no_improve, grow_patience, grow_count = 0, int(os.environ.get("GROW_PATIENCE", "5")), 0   # grow-as-you-train
     val_every = int(os.environ.get("VAL_EVERY", "500"))              # validation/checkpoint cadence (tunable)
@@ -186,7 +198,7 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     if lr <= 0:
         lr = find_lr()
         print(f"[lr] DERIVED peak lr = {lr:.2e} (steepest descent of the model's own lr sweep -- not a hardcoded seed)", flush=True)
-    pbar = tqdm(range(1, steps + 1), desc="pragnosia", dynamic_ncols=True, mininterval=4,
+    pbar = tqdm(range(start_it, steps + 1), desc="pragnosia", dynamic_ncols=True, mininterval=4,
                 file=sys.stdout, smoothing=.05)
     for it in pbar:
         clr = lr * lr_at(it)
@@ -207,7 +219,8 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                 il = F.cross_entropy(fwd(xi).reshape(-1, VOC), yi.reshape(-1), ignore_index=-100)
             il.backward()
             torch.nn.utils.clip_grad_norm_(m.parameters(), 1.0); id_opt.step()
-        toks = it * bs * accum * CFG["ctx"]; tps = toks / (time.time() - t0)
+        toks = it * bs * accum * CFG["ctx"]                                  # cumulative (for epoch)
+        tps = (it - step_base) * bs * accum * CFG["ctx"] / (time.time() - t0)  # rate THIS run (resume-correct)
         # live progress bar (updates every step; throttled write to log)
         pbar.set_postfix_str(f"loss={run_loss:.3f} lr={clr:.1e} ppl*={best if best<1e8 else 0:.1f} "
                              f"{tps/1e3:.0f}Ktok/s epoch={toks/td.size(0):.2f}")
@@ -233,6 +246,8 @@ def main(steps, lr, resume, override_bs, grow_enabled):
             pbar.write(f"  >> it={it:6d}  VAL_PPL={ppl:.2f}  (best {min(best,ppl):.2f})  "
                        f"loss={run_loss:.3f}  ({(time.time()-t0)/3600:.2f}h){star}")
             torch.save(m.state_dict(), CFG["ckpt"])      # save LATEST every val (resumable)
+            json.dump({"step": it, "lr_scale": lr_scale, "lr_wait": lr_wait, "best": best},
+                      open(state_path, "w"))             # sidecar -> resume CONTINUES from here, not 0
             if ppl < best:                                # ALSO protect the BEST: refinement runs can
                 best = ppl; no_improve = 0; lr_wait = 0   # drift worse at too-high lr, and latest-only
                 torch.save(m.state_dict(), best_ckpt)   # would overwrite the good weights.
