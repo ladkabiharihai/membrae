@@ -152,12 +152,17 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     best = H.val_ppl(m, vd, iters=15) if (resume and os.path.exists(CFG["ckpt"])) else 1e9
     if best < 1e9: print(f"resumed model val_ppl={best:.2f} -- will only save if training beats it", flush=True)
     t0, run_loss = time.time(), None
-    no_improve, grow_patience, grow_count = 0, 5, 0                   # grow-as-you-train
-    max_layers, max_mlp_mult = 48, 4                                 # FLOP-efficient shape: grow by DEPTH,
-                                                                     # keep the MLP lean (mlp_mult<=4). A wide
-                                                                     # mlp_mult=12 just inflates params (=FLOPs)
-                                                                     # for little gain; depth at mlp4 is the
-                                                                     # better capability-per-FLOP trade.
+    no_improve, grow_patience, grow_count = 0, int(os.environ.get("GROW_PATIENCE", "5")), 0   # grow-as-you-train
+    val_every = int(os.environ.get("VAL_EVERY", "500"))              # validation/checkpoint cadence (tunable)
+    best_ckpt = os.environ.get("BEST_CKPT", "pragnosia_best.pt")     # save-on-best path (env so tests don't clobber)
+    # NO hardcoded size caps. The DATA sets the ceiling: Chinchilla ~20 tokens/param is
+    # compute-optimal, so the model may grow only while it's below tokens/20 -- past that, extra
+    # params simply can't be trained to maturity on this corpus. VRAM is the other (physical) cap.
+    budget_params = td.size(0) / 20.0
+    PROBE_STEPS = int(os.environ.get("PROBE_STEPS", "60"))           # steps to test whether capacity truly helps
+    val_hist = []                                                    # recent val ppls -> derive the "is it noise?" bar
+    print(f"[growth] data budget: {td.size(0)/1e6:.0f}M tokens -> max ~{budget_params/1e6:.1f}M params "
+          f"(Chinchilla tokens/20). Grow only on PROBE-CONFIRMED saturation; shape self-chosen.", flush=True)
     pbar = tqdm(range(1, steps + 1), desc="pragnosia", dynamic_ncols=True, mininterval=4,
                 file=sys.stdout, smoothing=.05)
     for it in pbar:
@@ -194,20 +199,20 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                     pbar.write(f"  !! free GPU VRAM {free_gb:.2f}GB <= {MEM_STOP_GB}GB floor — "
                                f"checkpoint saved, stopping cleanly (resume with --resume)")
                     break
-        if it % 500 == 0 or it == steps:            # validation + checkpoint
+        if it % val_every == 0 or it == steps:            # validation + checkpoint
             m.eval(); tot = n = 0
             with torch.no_grad(), actx:
                 for _ in range(30):
                     a, b = H.batch(vd, max(4, bs // 2))
                     tot += F.cross_entropy(m(a).reshape(-1, VOC), b.reshape(-1)).item() * b.numel(); n += b.numel()
-            ppl = math.exp(tot / n); m.train()
+            ppl = math.exp(tot / n); m.train(); val_hist.append(ppl)
             star = "  *** new best, checkpoint saved" if ppl < best else ""
             pbar.write(f"  >> it={it:6d}  VAL_PPL={ppl:.2f}  (best {min(best,ppl):.2f})  "
                        f"loss={run_loss:.3f}  ({(time.time()-t0)/3600:.2f}h){star}")
             torch.save(m.state_dict(), CFG["ckpt"])      # save LATEST every val (resumable)
             if ppl < best:                                # ALSO protect the BEST: refinement runs can
                 best = ppl; no_improve = 0; lr_wait = 0   # drift worse at too-high lr, and latest-only
-                torch.save(m.state_dict(), "pragnosia_best.pt")   # would overwrite the good weights.
+                torch.save(m.state_dict(), best_ckpt)   # would overwrite the good weights.
             else:                                         # pragnosia_best.pt = lowest-ppl checkpoint.
                 no_improve += 1; lr_wait += 1
                 # ADAPTIVE lr: react to the val signal instead of a hardcoded value
@@ -217,42 +222,72 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                 elif lr_wait >= lr_patience and lr_scale > 0.02:               # plateaued -> ease down
                     lr_scale *= 0.7; lr_wait = 0
                     pbar.write(f"  ~~ lr auto-EASED (plateau) -> lr {lr*lr_scale:.2e} (scale {lr_scale:.3f})")
-            # GROW-AS-YOU-TRAIN: plateau = the model has extracted what it can at
-            # this size. With VRAM headroom, grow -- ALTERNATING depth (add a layer)
-            # and width (widen every MLP), function-preserving (no quality loss at
-            # growth), and keep training. So from a small start it auto-scales into a
-            # balanced larger brain, sized by the data and the GPU. The free-VRAM
-            # guard + fit check make it safe -- it never risks the running process,
-            # and it stops when the card is full (VRAM is the real cap).
+            # SELF-GOVERNING GROWTH (no hardcoded caps). A plateau is only a HINT, not a
+            # licence to grow -- a high-loss plateau is just stuck on lr/data, NOT saturation
+            # (that exact confusion is how an undertrained model ballooned to 1.4B). So on a
+            # plateau we PROBE: grow a copy by depth AND by width, train each briefly, and grow
+            # only if the extra capacity DEMONSTRABLY lowers val loss past the val noise. The
+            # shape (depth vs width) is whichever probe helps more. Caps are the DATA budget
+            # (Chinchilla tokens/20) and VRAM -- both derived, none hardcoded.
             if grow_enabled and no_improve >= grow_patience:
                 import grow as G
                 free = (torch.cuda.mem_get_info()[0] / 2**30) if DEVICE == "cuda" else 99
-                can_depth = len(m.blocks) < max_layers; can_width = m.mlp_mult < max_mlp_mult
-                want_width = can_width and not can_depth               # DEPTH-FIRST; widen only if depth is capped
-                mode = ("width" if (want_width and can_width) or not can_depth else "depth") if (can_depth or can_width) else None
-                if free <= 4.0 or mode is None:
+                if G.n_params(m) >= budget_params:                    # DATA budget reached (derived)
                     grow_enabled = False
-                    why = f"only {free:.1f}GB free" if free <= 4.0 else "at growth cap"
-                    pbar.write(f"  ## saturated, {why} — staying at {len(m.blocks)}L mlp_mult={m.mlp_mult} "
-                               f"({G.n_params(m)/1e6:.0f}M)")
+                    pbar.write(f"  ## DATA-BUDGET cap: {G.n_params(m)/1e6:.1f}M >= {budget_params/1e6:.1f}M "
+                               f"(tokens/20) -- a bigger model can't be trained to maturity on this corpus. Staying.")
+                elif free <= 4.0:                                     # physical VRAM cap
+                    grow_enabled = False
+                    pbar.write(f"  ## VRAM cap ({free:.1f}GB free) -- staying at {G.n_params(m)/1e6:.0f}M")
                 else:
-                    cand = (G.grow_depth(m, 1) if mode == "depth" else G.grow_width(m, 1)).to(DEVICE)
-                    nb = fit_batch(cand, td, cfg["bs"], cfg["bf16"])
-                    if nb >= 2:                                        # the grown model fits -> adopt it
-                        m = cand; CFG["layers"] = len(m.blocks); CFG["mlp_mult"] = m.mlp_mult
-                        json.dump(CFG, open("pragnosia.json", "w"), indent=2)   # in sync for --resume
-                        bs, accum = nb, max(1, 64 // nb)
+                    # "meaningful" bar = the val noise itself (derived): a probe must beat the
+                    # plateau by MORE than the plateau has been wobbling.
+                    noise = float(np.std(val_hist[-4:]) / max(1e-6, np.mean(val_hist[-4:]))) if len(val_hist) >= 3 else 0.01
+                    bar = max(0.01, 2 * noise)
+                    def _probe(cand):
+                        cand = cand.to(DEVICE); cand.train()
+                        nb = fit_batch(cand, td, cfg["bs"], cfg["bf16"])
+                        if nb < 1: del cand; torch.cuda.empty_cache(); return None, 1e9, 0
+                        po = _mkopt(cand.parameters(), clr)            # probe at the current lr
+                        for _ in range(PROBE_STEPS):
+                            po.zero_grad(); xa, ya = H.batch(td, nb)
+                            with actx: pl = F.cross_entropy(cand(xa).reshape(-1, VOC), ya.reshape(-1))
+                            pl.backward(); torch.nn.utils.clip_grad_norm_(cand.parameters(), 1.0); po.step()
+                        return cand, H.val_ppl(cand, vd, iters=15), nb
+                    pbar.write(f"  .. plateau at {G.n_params(m)/1e6:.1f}M -> probing saturation "
+                               f"(depth vs width, {PROBE_STEPS} steps each; must beat {bar*100:.1f}%)")
+                    best_c, best_p, best_mode, best_nb = None, 1e9, None, 0
+                    for gfn, md in ((G.grow_depth, "depth"), (G.grow_width, "width")):
+                        c, p, nb = _probe(gfn(m, 1))
+                        if c is None: continue
+                        if p < best_p:
+                            if best_c is not None: del best_c
+                            best_c, best_p, best_mode, best_nb = c, p, md, nb
+                        else:
+                            del c
+                        torch.cuda.empty_cache()
+                    helps = (ppl - best_p) / max(1e-6, ppl) if best_c is not None else -1
+                    if best_c is None:
+                        grow_enabled = False
+                        pbar.write(f"  ## neither growth fits VRAM -- staying at {G.n_params(m)/1e6:.0f}M")
+                    elif helps > bar:                                 # CONFIRMED saturation -> commit the winner
+                        m = best_c; CFG["layers"] = len(m.blocks); CFG["mlp_mult"] = m.mlp_mult
+                        json.dump(CFG, open("pragnosia.json", "w"), indent=2)
+                        bs, accum = best_nb, max(1, 64 // best_nb)
                         opt = _mkopt(m.parameters(), lr)
-                        if id_seqs: id_opt = torch.optim.AdamW(m.parameters(), lr=id_lr, betas=(0.9, 0.95))  # retarget grown params
-                        if pf: pf._stop = True; pf = H.Prefetcher(td, bs, depth=4)   # rebuild for new bs
+                        if id_seqs: id_opt = torch.optim.AdamW(m.parameters(), lr=id_lr, betas=(0.9, 0.95))
+                        if pf: pf._stop = True; pf = H.Prefetcher(td, bs, depth=4)
                         def get_batch(): return pf.next() if pf else H.batch(td, bs)
                         fwd = torch.compile(m, dynamic=False) if cfg["compile"] else m
-                        torch.save(m.state_dict(), CFG["ckpt"]); no_improve = 0; best = ppl; grow_count += 1
-                        pbar.write(f"  ## GREW ({mode}) -> {len(m.blocks)}L mlp_mult={m.mlp_mult}  "
-                                   f"{G.n_params(m)/1e6:.0f}M params (saturation), bs={bs}")
-                    else:
-                        del cand; torch.cuda.empty_cache(); grow_enabled = False
-                        pbar.write(f"  ## saturated, {mode} growth won't fit — staying at current size")
+                        best = best_p; torch.save(m.state_dict(), CFG["ckpt"]); no_improve = 0; grow_count += 1
+                        pbar.write(f"  ## GREW ({best_mode}) -- saturation CONFIRMED: ppl {ppl:.2f}->{best_p:.2f} "
+                                   f"({helps*100:.1f}% > {bar*100:.1f}% from +capacity) -> "
+                                   f"{len(m.blocks)}L mlp{m.mlp_mult} {G.n_params(m)/1e6:.1f}M, bs={bs}")
+                    else:                                             # plateau but capacity DOESN'T help -> stuck, not full
+                        del best_c; torch.cuda.empty_cache(); no_improve = 0
+                        lr_scale *= 0.7; lr_wait = 0
+                        pbar.write(f"  ## NOT saturated (capacity helps only {helps*100:.1f}% < {bar*100:.1f}%) "
+                                   f"-- NOT growing; easing lr to {lr*lr_scale:.2e} (it's stuck, not full)")
     pbar.close()
     print(f"[pragnosia] DONE best val ppl={best:.2f} saved {CFG['ckpt']}", flush=True)
 
