@@ -22,6 +22,7 @@ continuation (own < swapped < random). Pass quality but FAIL this = regression; 
 """
 import argparse, json, math, time, os
 import numpy as np, torch, torch.nn as nn, torch.nn.functional as F
+import torch.utils.checkpoint   # gradient checkpointing (low-memory training of big models)
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cuda.matmul.allow_tf32 = True
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -136,8 +137,9 @@ class SpinAttentionLM(nn.Module):
         B, T = x.shape
         pos = torch.arange(T, device=x.device)
         h = self.emb(x) + self.pos(pos)[None]
-        for b in self.blocks:
-            h = b(h)
+        ck = self.training and getattr(self, "grad_checkpoint", False)   # recompute acts in backward
+        for b in self.blocks:                                            # -> trains a big model on a small GPU
+            h = torch.utils.checkpoint.checkpoint(b, h, use_reentrant=False) if ck else b(h)
         h, hs = self.carrier(h, None if state is None else state[0])
         lg = self.head(self.lnf(h))
         return (lg, [hs]) if return_state else lg

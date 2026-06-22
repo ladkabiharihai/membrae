@@ -93,14 +93,29 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     torch.manual_seed(0); np.random.seed(0)
     cfg = autotune()
     td, vd = H.load(CFG["train_bin"]), H.load(CFG["valid_bin"])
-    m = H.SpinAttentionLM(VOC, CFG["d"], CFG["heads"], CFG["layers"], mlp_mult=CFG.get("mlp_mult", 4)).to(DEVICE)
+    m = H.SpinAttentionLM(VOC, CFG["d"], CFG["heads"], CFG["layers"], mlp_mult=CFG.get("mlp_mult", 4))  # build on CPU
     p = sum(x.numel() for x in m.parameters())
-    if resume and os.path.exists(CFG["ckpt"]):
-        m.load_state_dict(torch.load(CFG["ckpt"], map_location=DEVICE, weights_only=True)); print("resumed", flush=True)
+    if resume and os.path.exists(CFG["ckpt"]):                          # load weights on CPU (no 2x GPU spike)
+        m.load_state_dict(torch.load(CFG["ckpt"], map_location="cpu", weights_only=True)); print("resumed", flush=True)
+    # LOW-MEMORY full-param training -- a BIG model on a SMALL GPU (e.g. 1.4B on 8GB):
+    #   bf16 weights (halve) + gradient checkpointing (recompute acts in backward) keep the
+    #   GPU to ~weights+grads+tiny-acts (~6-7GB); PagedAdamW8bit holds the optimizer state in
+    #   8-bit and AUTO-PAGES it to CPU RAM, so the 11.5GB AdamW state never sits on the GPU.
+    #   Same params, no LoRA -- just memory-relocated. Auto-on for big-model/small-GPU; LAPTOP=1 forces.
+    lowmem = os.environ.get("LAPTOP", "0") == "1" or (DEVICE == "cuda" and p > 7e8 and cfg["vram"] < 16)
+    bnb = None
+    if lowmem:
+        import bitsandbytes as bnb
+        m = m.bfloat16(); m.grad_checkpoint = True
+        cfg.update(bs=1, accum=64, bf16=False, compile=False)     # bf16 weights -> no autocast; ckpt+compile clash
+        grow_enabled = False                                      # growth re-allocs the optimizer -> keep it off here
+        print(f"[LOWMEM] full {p/1e6:.0f}M on {cfg['vram']}GB: bf16 weights + grad-checkpoint + PagedAdamW8bit "
+              f"(optimizer state pages to CPU)", flush=True)
+    m = m.to(DEVICE)                                                    # move ONCE (bf16 if lowmem -> ~half)
     # adapt batch to the ACTUAL model+GPU (robust to any size), then keep eff batch ~64
     if override_bs:
         cfg["bs"] = override_bs
-    else:
+    elif not lowmem:
         cfg["bs"] = fit_batch(m, td, cfg["bs"], cfg["bf16"])
     cfg["accum"] = max(1, 64 // cfg["bs"])
     fwd = torch.compile(m, dynamic=False) if cfg["compile"] else m
@@ -108,13 +123,14 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     print(f"[pragnosia] {p/1e6:.0f}M params | GPU {cfg['gpu']} {cfg['vram']}GB | "
           f"bs={bs} accum={accum} (eff {bs*accum}) bf16={bf16} compile={cfg['compile']} | "
           f"train_toks={td.size(0):,}", flush=True)
-    opt = torch.optim.AdamW(m.parameters(), lr=lr, weight_decay=0.05, betas=(0.9, 0.95))
+    opt = (bnb.optim.PagedAdamW8bit if lowmem else torch.optim.AdamW)(
+        m.parameters(), lr=lr, weight_decay=0.05, betas=(0.9, 0.95))
     # identity injection (optional, env-gated)
     id_path = os.environ.get("PRAGNOSIA_IDENTITY")
     id_seqs = _load_identity(id_path) if id_path and os.path.exists(id_path) else None
     id_every = int(os.environ.get("IDENTITY_EVERY", "50"))
     id_lr = float(os.environ.get("IDENTITY_LR", "1e-4"))                      # brain.py's proven gentle teach lr
-    id_opt = torch.optim.AdamW(m.parameters(), lr=id_lr, betas=(0.9, 0.95)) if id_seqs else None
+    id_opt = torch.optim.AdamW(m.parameters(), lr=id_lr, betas=(0.9, 0.95)) if (id_seqs and not lowmem) else None
     # background-thread batch prefetcher (overlaps data prep with compute). PREFETCH=0 to disable.
     use_prefetch = os.environ.get("PREFETCH", "1") != "0"
     pf = H.Prefetcher(td, bs, depth=4) if use_prefetch else None
@@ -129,7 +145,11 @@ def main(steps, lr, resume, override_bs, grow_enabled):
         return min(1.0, it / warm) * lr_scale
     actx = torch.autocast("cuda", dtype=torch.bfloat16) if bf16 else torch.autocast("cuda", enabled=False)
     from tqdm import tqdm
-    best, t0, run_loss = 1e9, time.time(), None
+    # init `best` from the RESUMED model's own val ppl, so an early step can never overwrite a
+    # known-good checkpoint -- save-on-best only fires on a real improvement.
+    best = H.val_ppl(m, vd, iters=15) if (resume and os.path.exists(CFG["ckpt"])) else 1e9
+    if best < 1e9: print(f"resumed model val_ppl={best:.2f} -- will only save if training beats it", flush=True)
+    t0, run_loss = time.time(), None
     no_improve, grow_patience, grow_count = 0, 5, 0                   # grow-as-you-train
     max_layers, max_mlp_mult = 48, 12                                # safety caps; VRAM is the real limit
     pbar = tqdm(range(1, steps + 1), desc="pragnosia", dynamic_ncols=True, mininterval=4,
@@ -216,7 +236,8 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                         m = cand; CFG["layers"] = len(m.blocks); CFG["mlp_mult"] = m.mlp_mult
                         json.dump(CFG, open("pragnosia.json", "w"), indent=2)   # in sync for --resume
                         bs, accum = nb, max(1, 64 // nb)
-                        opt = torch.optim.AdamW(m.parameters(), lr=lr, weight_decay=0.05, betas=(0.9, 0.95))
+                        opt = (bnb.optim.PagedAdamW8bit if lowmem else torch.optim.AdamW)(
+        m.parameters(), lr=lr, weight_decay=0.05, betas=(0.9, 0.95))
                         if id_seqs: id_opt = torch.optim.AdamW(m.parameters(), lr=id_lr, betas=(0.9, 0.95))  # retarget grown params
                         if pf: pf._stop = True; pf = H.Prefetcher(td, bs, depth=4)   # rebuild for new bs
                         def get_batch(): return pf.next() if pf else H.batch(td, bs)
