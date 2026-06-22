@@ -89,8 +89,16 @@ class Brain(nn.Module):
         # the length at which familiar text becomes long-form predictable (boundary
         # settles toward its floor). Derived from its own curve -- not hand-set. This
         # stops it from memorizing 4-token fragments and noise, which corrupts skills.
-        floor = self._bcurve[-1][1]
-        self._learn_min = next((L for L, b in self._bcurve if b <= 2 * floor), 32)
+        # learn-min = the KNEE of the familiarity curve (where extra context stops lowering the
+        # boundary), found parameter-free as the bcurve point farthest from the chord joining its
+        # ends (greatest curvature) -- not a fixed 2*floor / 32-token fallback.
+        Ls = [L for L, _ in self._bcurve]; bs = [b for _, b in self._bcurve]
+        if len(Ls) >= 3:
+            dx, dy = Ls[-1] - Ls[0], bs[-1] - bs[0]; den = (dx * dx + dy * dy) ** 0.5 or 1.0
+            dist = [abs(dy * (Ls[i] - Ls[0]) - dx * (bs[i] - bs[0])) / den for i in range(len(Ls))]
+            self._learn_min = Ls[max(range(len(dist)), key=lambda i: dist[i])]
+        else:
+            self._learn_min = Ls[len(Ls) // 2] if Ls else 8
         self.match_threshold = self._calibrate_match()  # what counts as a memory match
         self._content_min = self._calibrate_content_min()     # what counts as a content word
         self.consistency_min = self._calibrate_consistency()  # answer-stability => it knows (honesty)
@@ -187,9 +195,12 @@ class Brain(nn.Module):
             b  = self._embed_ids(vd[j:j+12])      # distant       -> unrelated (negative)
             pos.append(float(a @ ap)); neg.append(float(a @ b))
         pos.sort(); neg.sort()
-        lo = neg[int(0.9 * len(neg))]             # top of the unrelated background
-        hi = pos[int(0.1 * len(pos))]             # bottom of the genuine-match band
-        return (lo + hi) / 2 if hi > lo else lo   # the separating bar
+        # EQUAL-ERROR-RATE separation: the bar where the false-match rate (unrelated above it)
+        # equals the miss rate (real matches below it) -- the natural crossover of the two
+        # distributions, derived with no hand-chosen tail percentile (was neg[.9]/pos[.1]).
+        N, P = max(len(neg), 1), max(len(pos), 1)
+        cand = sorted(set(pos + neg))
+        return min(cand, key=lambda t: abs(sum(x > t for x in neg) / N - sum(x <= t for x in pos) / P))
 
     def _install_identity(self, cache=f"pragnosia_id_{CFG['vocab']}.pt"):
         """Identity as real KNOWLEDGE in the weights -- learned the way a child learns
@@ -351,11 +362,18 @@ class Brain(nn.Module):
         """Content-surprise on familiar text -> the bar above which content is NEW."""
         if not os.path.exists(f"data/{CFG['valid_bin']}.bin"): return 3.0
         vd = H.load(CFG["valid_bin"]); g = torch.Generator().manual_seed(4)
-        vals = []
+        fam, new = [], []
         for _ in range(k):
             i = int(torch.randint(0, vd.size(0) - 48, (1,), generator=g))
-            vals.append(self._novelty(self.tok.decode(vd[i:i+40].long().tolist())))
-        vals.sort(); return vals[int(0.6 * len(vals))]    # above-typical content surprise = new
+            seg = vd[i:i+40].long().tolist()
+            fam.append(self._novelty(self.tok.decode(seg)))                      # familiar text
+            perm = torch.randperm(len(seg), generator=g).tolist()
+            new.append(self._novelty(self.tok.decode([seg[p] for p in perm])))   # shuffled -> genuinely novel
+        # EER separation between familiar and novel content-surprise (no 0.6 percentile): the bar
+        # where familiar-flagged-new equals novel-missed -- the crossover of the two distributions.
+        Fn, Nn = max(len(fam), 1), max(len(new), 1)
+        cand = sorted(set(fam + new))
+        return min(cand, key=lambda t: abs(sum(x > t for x in fam) / Fn - sum(x <= t for x in new) / Nn))
 
     # ================= CURIOSITY: it asks its OWN question =================
     @torch.no_grad()
