@@ -184,6 +184,29 @@ class SpinAttentionLM(nn.Module):
         h, _ = self.carrier(h, None)
         return self.lnf(h)                       # (B,T,d) contextual representation
 
+class FastWeightMemory(nn.Module):
+    """In-weights SUBCONSCIOUS memory (not RAG): a fast-weight associative store F that lives
+    INSIDE the model (a buffer, part of the weights). Written by SURPRISE during experience
+    (Hebbian, no gradient), recalled additively into the hidden stream, decaying over time
+    (forgetting). Consolidated into the slow weights during 'sleep'. Mirrors hippocampal fast
+    plasticity -> neocortical consolidation, the brain's real answer to active vs subconscious."""
+    def __init__(self, d, decay=0.95):
+        super().__init__()
+        self.d = d; self.decay = decay
+        self.register_buffer("F", torch.zeros(d, d))            # the fast store -- in the weights
+        self.gate = nn.Parameter(torch.tensor(-2.0))            # learned light read gate (like the carrier)
+    def read(self, h):                                          # associative recall, added to the stream
+        return h + torch.sigmoid(self.gate) * (h @ self.F.t())
+    @torch.no_grad()
+    def write(self, key, value, surprise):                     # instant, surprise-gated Hebbian write
+        self.F.mul_(self.decay).add_(float(surprise) * torch.outer(value, key))
+    @torch.no_grad()
+    def tick(self):  self.F.mul_(self.decay)                    # time passes -> unreinforced traces fade
+    @torch.no_grad()
+    def energy(self): return float(self.F.norm())               # how much is held subconsciously now
+    @torch.no_grad()
+    def reset(self): self.F.zero_()                             # after consolidation into slow weights
+
 def n_params(m): return sum(p.numel() for p in m.parameters())
 
 # ----------------------------------------------------------------- data/eval
