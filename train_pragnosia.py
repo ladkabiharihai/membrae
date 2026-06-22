@@ -31,12 +31,13 @@ def autotune():
     bs = min(bs, 256)
     target_eff = 64                                # keep a sane effective batch
     accum = max(1, target_eff // bs)
-    # Optimal per GPU class (measured): small GPU -> fp32 + COMPILE (compile fuses
-    # the sequential spin loop, fastest here). Big GPU -> bf16, no compile (big
-    # batch + bf16 throughput; avoids the compile+tied-weights dtype bug).
+    # FASTEST per GPU class. bf16 everywhere (tensor cores; the old bf16+compile+tied-weights
+    # bug is gone on torch 2.8, verified) + compile on the small GPU to fuse the spin scan.
     small = vram <= 12
-    use_compile = small
-    use_bf16 = bf16 and not small
+    # compile fuses the spin scan, but inductor is unreliable on small consumer GPUs (e.g. the
+    # 4060: "not enough SMs" -> intermittent device-side asserts in long runs). NOCOMPILE=1 to disable.
+    use_compile = small and os.environ.get("NOCOMPILE", "0") != "1"
+    use_bf16 = bf16
     return dict(bs=bs, accum=accum, bf16=use_bf16, compile=use_compile, gpu=p.name, vram=round(vram, 1))
 
 def fit_batch(m, td, start_bs, bf16):
