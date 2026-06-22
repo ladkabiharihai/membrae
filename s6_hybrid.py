@@ -142,6 +142,35 @@ class SpinAttentionLM(nn.Module):
         lg = self.head(self.lnf(h))
         return (lg, [hs]) if return_state else lg
 
+    @torch.no_grad()
+    def generate(self, ids, n_new=64, window=256, overlap=64, temp=0.0, rep=1.3, eos=0):
+        """O(T) LONG-context generation. Attention only ever sees `window` tokens (the
+        trained context) so positions never exceed the cap and quality stays in-distribution;
+        the spin carrier carries the running cross-window state, so the prompt AND the output
+        can be arbitrarily long without growing per-token compute. Long prompt -> processed in
+        window-blocks (carry state). Generation -> when the live window fills, the older part is
+        committed into the carrier and an `overlap` tail is kept for local attention continuity."""
+        dev = self.emb.weight.device
+        ids = list(ids); out = []; S = None
+        keep_from = max(0, len(ids) - window)                  # commit everything before the last window
+        j = 0
+        while j < keep_from:
+            blk = ids[j:min(j + window, keep_from)]
+            _, S = self.forward(torch.tensor([blk], device=dev), state=S, return_state=True)
+            j += window
+        win = ids[keep_from:] or [eos]
+        for _ in range(n_new):
+            lg, _ = self.forward(torch.tensor([win], device=dev), state=S, return_state=True)
+            logits = lg[0, -1].float()
+            for t in set((win + out)[-40:]): logits[t] /= rep
+            nx = int(logits.argmax()) if temp <= 0 else int(torch.multinomial(torch.softmax(logits / temp, -1), 1))
+            if nx == eos: break
+            out.append(nx); win = win + [nx]
+            if len(win) >= window:                             # commit older tokens, keep overlap for context
+                commit, win = win[:-overlap], win[-overlap:]
+                _, S = self.forward(torch.tensor([commit], device=dev), state=S, return_state=True)
+        return out
+
     def represent(self, x):
         """The brain's own contextual understanding of a sequence (learned hidden
         states, pre-head). Used as the meaning key for seek/retrieval."""
