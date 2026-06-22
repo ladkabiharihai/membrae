@@ -47,17 +47,24 @@ H.VOC, H.L = CFG["vocab"], CFG["ctx"]      # make s6_hybrid helpers match the mo
 
 class Brain(nn.Module):
     NAME = "Pragnosia"
-    def __init__(self, lm_ckpt=None):
+    def __init__(self, lm_ckpt=None, learn=True):
         super().__init__()
+        # learn=True  -> full alive brain: teaches identity into weights, learns from
+        #                chat (continuous learning). Needs an optimizer over the whole LM,
+        #                so for a big model (1.4B) use CPU -- the GPU can't hold AdamW state.
+        # learn=False -> inference-only chat: NO teaching anywhere (fits a big model on a
+        #                small GPU); identity & taught facts are recalled from seek memory.
+        self.learn = learn
         self.cfg = CFG
         self.faculties = U.UnifiedBrain(d=128).to(DEVICE)
         if os.path.exists("unified_brain.pt"):
             self.faculties.load_state_dict(torch.load("unified_brain.pt", map_location=DEVICE, weights_only=True))
         self.lm = H.SpinAttentionLM(CFG["vocab"], CFG["d"], CFG["heads"], CFG["layers"],
-                                    mlp_mult=CFG.get("mlp_mult", 4)).to(DEVICE)
+                                    mlp_mult=CFG.get("mlp_mult", 4))         # build on CPU
         ckpt = lm_ckpt or CFG["ckpt"]
-        if os.path.exists(ckpt):
-            self.lm.load_state_dict(torch.load(ckpt, map_location=DEVICE, weights_only=True))
+        if os.path.exists(ckpt):                                            # load weights on CPU then move
+            self.lm.load_state_dict(torch.load(ckpt, map_location="cpu", weights_only=True))
+        self.lm = self.lm.to(DEVICE)        # move ONCE -> peak GPU = model size, not 2x (big-model safe)
         self.tok = Tokenizer.from_file(CFG["tokenizer"])
         self.store = []            # retrieval memory (real seek faculty), (text, key_emb)
         self._replay = None
@@ -209,11 +216,11 @@ class Brain(nn.Module):
         ]
         if os.path.exists(cache):
             self.lm.load_state_dict(torch.load(cache, map_location=DEVICE, weights_only=True))
-        else:
+        elif self.learn:                         # only bake identity into weights when learning is on
             for s in facts:
                 self.teach(s, base_lr=1e-4, max_steps=20)     # gentle: nudge, don't memorize-hard
             self._atomic_save(self.lm.state_dict(), cache)
-        for s in facts:                          # also in seek memory (for ask(); recall is generative)
+        for s in facts:                          # seek memory either way -> recall works in inference mode
             self.store.append((s, self._embed(s)))
 
     # ================= proven faculties (delegate) =================
@@ -317,7 +324,10 @@ class Brain(nn.Module):
             rnd = self.tok.decode(torch.randint(0, H.VOC, (5,), generator=g).tolist()) + "?"
             noise.append(self._self_consistency(rnd, k=5, n=18)[0])
         noise.sort()
-        return max(0.5, noise[int(0.9 * len(noise))] + 0.1)        # > chance AND a majority
+        # > chance, but always a simple majority (>half) and never more than a clear 3-of-5.
+        # A bigger model continues even random-seed "noise" fluently/consistently, which would
+        # otherwise push the bar so high it abstains on things it knows -- so clamp to [0.5, 0.6].
+        return min(0.6, max(0.5, noise[int(0.9 * len(noise))] + 0.1))
 
     # ================= NOVELTY: is the CONTENT new (so, learn it)? =================
     @torch.no_grad()
@@ -416,7 +426,7 @@ class Brain(nn.Module):
         if not obs: return {"idle": True}
         ids = self.tok.encode(obs).ids
         n_content = sum(self._tw[t].item() >= self._content_min for t in ids)
-        is_new_fact = (self._novelty(obs) > self.novelty_min and n_content >= 4
+        is_new_fact = (self.learn and self._novelty(obs) > self.novelty_min and n_content >= 4
                        and len(ids) >= self._learn_min)
         if is_new_fact:
             entity = self.wonder(obs); self._last_topic = entity   # wonder BEFORE teaching,
@@ -468,11 +478,13 @@ class Brain(nn.Module):
         or 'child mode' -- this is just how it lives."""
         text = (text or "").strip()
         if not text:
-            return self.explore()
+            return self.explore() if self.learn else {"answer": "(I'm listening.)"}
         if text.endswith("?"):
             cons, ans = self._self_consistency(text)    # answer only if it HONESTLY knows
             if cons >= self.consistency_min:
                 return {"answer": ans[:200]}
+            if not self.learn:                              # inference-only: just be honest
+                return {"answer": "I don't know."}
             topic = self.wonder(text) or text.rstrip("? ").split(" ")[-1]
             tr = {"answer": "I don't know -- let me find out.", "didnt_know": topic}
             info = self.search(topic)                       # curious -> look it up and learn
@@ -708,9 +720,11 @@ def _show(tr):
     if tr.get("grew"):         print(f"   · !! it GREW its own brain: {tr['grew']}")
 
 def live(brain):
-    print(f"Pragnosia is awake -- {brain.n_params():,} params. Just talk to it: it answers")
-    print("what it knows, learns what you tell it, wonders its own questions, and looks up")
-    print("what it doesn't know. Press Enter alone to let it think. 'quit' saves & exits.\n")
+    mode = "LEARNS as you talk (continuous learning ON)" if brain.learn else "inference only (no learning)"
+    print(f"Pragnosia is awake -- {brain.n_params():,} params  ·  {mode}.")
+    print("Talk to it: it answers what it knows and honestly says when it doesn't.")
+    if brain.learn: print("Tell it new things and it learns them; press Enter to let it think.")
+    print("'quit' to exit.\n")
     learned_anything = False
     while True:
         try: msg = input("you> ").strip()
@@ -719,18 +733,21 @@ def live(brain):
         tr = brain.interact(msg)
         if tr.get("learned") or tr.get("looked_up"): learned_anything = True
         _show(tr); print()
-    if learned_anything:                              # only save (overwrite) if it actually grew
+    if learned_anything:
         brain.persist(); print("\n[saved what it learned this session]")
-    else:
-        print("\n[nothing new learned -- model left untouched]")
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] == "test":
+    a = sys.argv[1] if len(sys.argv) > 1 else ""
+    if a == "test":
         self_test(Brain())
-    elif len(sys.argv) > 1:                     # one-shot: say something to it, see what it does
-        _show(Brain().interact(" ".join(sys.argv[1:])))
+    elif a == "chat":                           # inference-only chat (fits a big model on a small GPU)
+        live(Brain(learn=False))
+    elif a == "learn":                           # full alive brain (continuous learning; use CPU for 1.4B)
+        live(Brain(learn=True))
+    elif a:                                       # one-shot, no learning: say something, see the answer
+        _show(Brain(learn=False).interact(" ".join(sys.argv[1:])))
     else:
-        live(Brain())                           # the living brain
+        live(Brain(learn=False))                 # default = safe inference chat
 
 if __name__ == "__main__":
     main()
