@@ -194,12 +194,20 @@ class FastWeightMemory(nn.Module):
         super().__init__()
         self.d = d; self.decay = decay
         self.register_buffer("F", torch.zeros(d, d))            # the fast store -- in the weights
-        self.gate = nn.Parameter(torch.tensor(-2.0))            # learned light read gate (like the carrier)
+        self.gate = nn.Parameter(torch.tensor(-2.0))           # read ceiling sigmoid(-2)=0.12: a GENTLE bias.
+                                                               # (Summed-F recall cross-talks across many facts;
+                                                               # strong selective recall needs a modern-Hopfield
+                                                               # attention over stored states -- the next iteration.)
     def read(self, h):                                          # associative recall, added to the stream
-        return h + torch.sigmoid(self.gate) * (h @ self.F.t())
+        recall = h @ self.F.t()
+        # cap the recall at a gentle fraction (the gate) of the representation's OWN magnitude, so a
+        # strong/accumulated store biases the next token WITHOUT dominating and degenerating output.
+        cap = torch.sigmoid(self.gate) * h.norm()
+        return h + recall * torch.clamp(cap / (recall.norm() + 1e-6), max=1.0)
     @torch.no_grad()
     def write(self, key, value, surprise):                     # instant, surprise-gated Hebbian write
-        self.F.mul_(self.decay).add_(float(surprise) * torch.outer(value, key))
+        k = key / (key.norm() + 1e-6)                          # unit key -> alignment is a clean cosine match
+        self.F.mul_(self.decay).add_(float(surprise) * torch.outer(value, k))
     @torch.no_grad()
     def tick(self):  self.F.mul_(self.decay)                    # time passes -> unreinforced traces fade
     @torch.no_grad()

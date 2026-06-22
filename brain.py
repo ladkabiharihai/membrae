@@ -271,13 +271,23 @@ class Brain(nn.Module):
 
     @torch.no_grad()
     @torch.no_grad()
-    def generate_text(self, prompt, n=40, rep=1.3, temp=0.0, no_rep_prompt=False):
-        # O(T) long-context generation via the model's block-wise carrier-carry generate:
-        # the prompt and the output can be arbitrarily long (attention stays in the trained
-        # window, the spin carrier carries cross-window memory) -- no position-cap, flat compute.
+    def generate_text(self, prompt, n=40, rep=1.3, temp=0.0, no_rep_prompt=False, recall=False):
+        # O(T) long-context generation. When the subconscious holds something (mem.energy>0),
+        # generation is RECALL-AWARE: each token's representation is mixed with the fast-weight
+        # recall before the head, so freshly-taught facts surface BEFORE the slow weights learn
+        # them. Empty subconscious -> the fast block-wise carrier-carry path (no per-token cost).
         self.lm.eval()
         ids = self.tok.encode(prompt).ids
-        out = self.lm.generate(ids, n_new=n, window=self.cfg["ctx"], temp=temp, rep=rep)
+        if not (recall and float(self.mem.energy()) > 0):
+            out = self.lm.generate(ids, n_new=n, window=self.cfg["ctx"], temp=temp, rep=rep)
+            return self.tok.decode(out).strip()
+        out = []
+        for _ in range(n):
+            lo = self._recall_logits(ids + out).float()
+            for t in set((ids + out)[-40:]): lo[t] /= rep
+            nx = lo.argmax().item() if temp <= 0 else torch.multinomial(F.softmax(lo / temp, -1), 1).item()
+            if nx == 0: break
+            out.append(nx)
         return self.tok.decode(out).strip()
 
     # ================= HONESTY by SELF-CONSISTENCY (no hardcode) =================
@@ -329,18 +339,23 @@ class Brain(nn.Module):
 
     @torch.no_grad()
     def _calibrate_consistency(self, k=12):
-        """How much answer-agreement happens by CHANCE (random-seed questions). A real
-        answer must clear that, and clear a majority. Derived; re-derived as it grows."""
+        """The honesty bar = where answer-agreement on text the brain KNOWS (familiar val snippets
+        it can continue) separates from agreement by CHANCE (random-seed noise). Set at the
+        equal-error-rate crossover of those two distributions, floored at a simple majority
+        (>half agree = real consensus). Two-distribution separation -- no +0.1 margin, no [0.5,0.6]
+        clamp; the gap itself sets the bar, so it scales with the model instead of being capped."""
         if not os.path.exists(f"data/{CFG['valid_bin']}.bin"): return 0.5
-        g = torch.Generator().manual_seed(3); noise = []
+        vd = H.load(CFG["valid_bin"]); g = torch.Generator().manual_seed(3)
+        known, chance = [], []
         for _ in range(k):
-            rnd = self.tok.decode(torch.randint(0, H.VOC, (5,), generator=g).tolist()) + "?"
-            noise.append(self._self_consistency(rnd, k=5, n=18)[0])
-        noise.sort()
-        # > chance, but always a simple majority (>half) and never more than a clear 3-of-5.
-        # A bigger model continues even random-seed "noise" fluently/consistently, which would
-        # otherwise push the bar so high it abstains on things it knows -- so clamp to [0.5, 0.6].
-        return min(0.6, max(0.5, noise[int(0.9 * len(noise))] + 0.1))
+            i = int(torch.randint(0, vd.size(0) - 16, (1,), generator=g))
+            known.append(self._self_consistency(self.tok.decode(vd[i:i+10].long().tolist()), k=5, n=18)[0])
+            rnd = self.tok.decode(torch.randint(0, H.VOC, (5,), generator=g).tolist())
+            chance.append(self._self_consistency(rnd, k=5, n=18)[0])
+        kn, cn = max(len(known), 1), max(len(chance), 1)
+        cand = sorted(set(known + chance))
+        eer = min(cand, key=lambda t: abs(sum(x <= t for x in known) / kn - sum(x > t for x in chance) / cn)) if cand else 0.5
+        return max(0.5, eer)                                # clear chance AND be a majority
 
     # ================= NOVELTY: is the CONTENT new (so, learn it)? =================
     @torch.no_grad()
@@ -550,13 +565,14 @@ class Brain(nn.Module):
     # ===================== IN-WEIGHTS SUBCONSCIOUS MEMORY =====================
     @torch.no_grad()
     def _remember(self, fact, surprise):
-        """Write a fact's (context -> next-token) association into the subconscious fast store --
-        instantly, surprise-gated, no gradient. Recallable BEFORE the slow weights have learned it."""
+        """Write the fact as a TRAJECTORY of associations -- at each position, the brain's grasp of
+        the prefix -> the next token -- so the subconscious can REGENERATE the fact, not just bias
+        its last token. Instant, surprise-gated, no gradient. Recallable before the slow weights learn it."""
         ids = self.tok.encode(fact).ids
         if len(ids) < 2: return
-        key = self.lm.represent(torch.tensor([ids[:-1]], device=DEVICE))[0, -1]   # the brain's grasp of the context
-        value = self.lm.emb.weight[ids[-1]]                                       # bias toward the real next token
-        self.mem.write(key.float(), value.float(), surprise)
+        reps = self.lm.represent(torch.tensor([ids], device=DEVICE))[0]           # [T, d] repr at each position
+        for t in range(len(ids) - 1):
+            self.mem.write(reps[t].float(), self.lm.emb.weight[ids[t + 1]].float(), surprise)
 
     @torch.no_grad()
     def _recall_logits(self, ids):
