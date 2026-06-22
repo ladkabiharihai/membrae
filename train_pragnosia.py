@@ -164,6 +164,28 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     val_hist = []                                                    # recent val ppls -> derive the "is it noise?" bar
     print(f"[growth] data budget: {td.size(0)/1e6:.0f}M tokens -> max ~{budget_params/1e6:.1f}M params "
           f"(Chinchilla tokens/20). Grow only on PROBE-CONFIRMED saturation; shape self-chosen.", flush=True)
+    # DERIVE the peak LR from the model's OWN loss-vs-lr curve (Smith range test) instead of a
+    # hardcoded seed: sweep lr exponentially over a short probe, pick the steepest-descent point.
+    # lo/hi/n are just the search grid (structural); the chosen lr is the model+data's answer.
+    def find_lr(lo=1e-6, hi=1.0, n=80):
+        import copy
+        st = copy.deepcopy(m.state_dict()); o = _mkopt(m.parameters(), lo)
+        mult = (hi / lo) ** (1.0 / n); cur = lo; losses = []; lrs = []
+        m.train()
+        for _ in range(n):
+            for g in o.param_groups: g["lr"] = cur
+            o.zero_grad(); x, y = get_batch()
+            with actx: ls = F.cross_entropy(fwd(x).reshape(-1, VOC), y.reshape(-1))
+            ls.backward(); torch.nn.utils.clip_grad_norm_(m.parameters(), 1.0); o.step()
+            losses.append(ls.item()); lrs.append(cur); cur *= mult
+            if not math.isfinite(losses[-1]) or losses[-1] > 4 * losses[0]: break   # diverged -> stop
+        m.load_state_dict(st)                                          # restore: the sweep was only a probe
+        if len(losses) < 8: return lrs[len(losses) // 2]
+        sm = np.convolve(np.array(losses), np.ones(5) / 5, mode="valid")
+        return float(lrs[int(np.argmin(np.diff(sm)))])                 # lr at steepest descent (no magic factor)
+    if lr <= 0:
+        lr = find_lr()
+        print(f"[lr] DERIVED peak lr = {lr:.2e} (steepest descent of the model's own lr sweep -- not a hardcoded seed)", flush=True)
     pbar = tqdm(range(1, steps + 1), desc="pragnosia", dynamic_ncols=True, mininterval=4,
                 file=sys.stdout, smoothing=.05)
     for it in pbar:
@@ -216,10 +238,13 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                 torch.save(m.state_dict(), best_ckpt)   # would overwrite the good weights.
             else:                                         # pragnosia_best.pt = lowest-ppl checkpoint.
                 no_improve += 1; lr_wait += 1
-                # ADAPTIVE lr: react to the val signal instead of a hardcoded value
-                if it > warm and ppl > best * 1.02 and lr_scale > 0.02:        # clearly degrading -> halve
+                # ADAPTIVE lr from the val signal. "Degrading" is measured against the val NOISE
+                # itself (the same std/mean bar the growth probe uses), not a hardcoded 2%: a real
+                # degradation is one that clears 2 sigma of the recent val wobble.
+                vnoise = float(np.std(val_hist[-4:]) / max(1e-6, np.mean(val_hist[-4:]))) if len(val_hist) >= 3 else 0.02
+                if it > warm and ppl > best * (1 + 2 * vnoise) and lr_scale > 0.02:   # degraded past the noise -> cut
                     lr_scale *= 0.5; lr_wait = 0
-                    pbar.write(f"  ~~ lr auto-CUT (val {ppl:.2f} > best {best:.2f}+2%) -> lr {lr*lr_scale:.2e} (scale {lr_scale:.3f})")
+                    pbar.write(f"  ~~ lr auto-CUT (val {ppl:.2f} > best +{2*vnoise*100:.1f}% noise) -> lr {lr*lr_scale:.2e} (scale {lr_scale:.3f})")
                 elif lr_wait >= lr_patience and lr_scale > 0.02:               # plateaued -> ease down
                     lr_scale *= 0.7; lr_wait = 0
                     pbar.write(f"  ~~ lr auto-EASED (plateau) -> lr {lr*lr_scale:.2e} (scale {lr_scale:.3f})")
@@ -295,7 +320,7 @@ def main(steps, lr, resume, override_bs, grow_enabled):
 if __name__ == "__main__":
     pa = argparse.ArgumentParser()
     pa.add_argument("--steps", type=int, default=150000)
-    pa.add_argument("--lr", type=float, default=6e-4)
+    pa.add_argument("--lr", type=float, default=0.0, help="0 = DERIVE the peak lr (Smith range test); >0 overrides")
     pa.add_argument("--bs", type=int, default=0)      # 0 = auto-tune from GPU
     pa.add_argument("--resume", action="store_true")
     pa.add_argument("--no-grow", action="store_true", help="disable grow-as-you-train")

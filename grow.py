@@ -89,11 +89,13 @@ def n_params(m): return sum(p.numel() for p in m.parameters())
 
 
 # ---- the self-derived growth trigger (no hardcoded threshold) ----
-def should_grow(forgetting, surprise_after, boundary):
-    """Grow only when the brain is BOTH forgetting (interference) and still
-    surprised after trying to learn (capacity full). Signals are the brain's own;
-    the bar is its own calibrated familiarity boundary."""
-    return (forgetting > 0.10) and (surprise_after > 0.85 * boundary)
+def should_grow(forgetting, surprise_after, boundary, forget_floor=0.0):
+    """Grow only when the brain is BOTH still surprised after trying to learn (the fact stays
+    ABOVE its own calibrated familiarity boundary -> it couldn't absorb it) AND that learning
+    disturbed old knowledge beyond the brain's own baseline forgetting noise. Both bars are the
+    brain's own signals -- the familiarity boundary and the measured forget-noise floor -- so
+    there is no magic threshold (was 0.85*boundary and a fixed 0.10)."""
+    return (surprise_after > boundary) and (forgetting > forget_floor)
 
 
 if __name__ == "__main__":

@@ -71,6 +71,8 @@ class Brain(nn.Module):
         self.store = []            # retrieval memory (real seek faculty), (text, key_emb)
         self._replay = None
         self._last_topic = None    # the topic its curiosity is currently chasing
+        self.mem = H.FastWeightMemory(self.lm.d).to(DEVICE)   # IN-WEIGHTS subconscious: surprise-write,
+                                                              # additive recall, decay (forget), sleep-consolidate
         # Everything below is DERIVED from the data/model, never hand-set, and is
         # re-derived by recalibrate() as the brain grows. Nothing hardcoded.
         self.recalibrate()
@@ -527,6 +529,30 @@ class Brain(nn.Module):
     # the signal is the model's own uncertainty, scaled by its own familiarity
     # boundary. Bonus: gentle steps on familiar input reduce forgetting.
     MEM_FILE = "learned_memory.json"
+    # ===================== IN-WEIGHTS SUBCONSCIOUS MEMORY =====================
+    @torch.no_grad()
+    def _remember(self, fact, surprise):
+        """Write a fact's (context -> next-token) association into the subconscious fast store --
+        instantly, surprise-gated, no gradient. Recallable BEFORE the slow weights have learned it."""
+        ids = self.tok.encode(fact).ids
+        if len(ids) < 2: return
+        key = self.lm.represent(torch.tensor([ids[:-1]], device=DEVICE))[0, -1]   # the brain's grasp of the context
+        value = self.lm.emb.weight[ids[-1]]                                       # bias toward the real next token
+        self.mem.write(key.float(), value.float(), surprise)
+
+    @torch.no_grad()
+    def _recall_logits(self, ids):
+        """Next-token logits WITH subconscious recall mixed into the representation (additive)."""
+        x = torch.tensor([ids[-self.cfg["ctx"]:]], device=DEVICE)
+        r = self.mem.read(self.lm.represent(x)[0, -1].float()).to(self.lm.head.weight.dtype)
+        return self.lm.head(r)
+
+    @torch.no_grad()
+    def sleep(self):
+        """Time passes: unreinforced subconscious traces fade (the consolidated ones are already
+        in the slow weights via teach's replay). Called when idle in live()."""
+        self.mem.tick()
+
     def teach(self, fact, base_lr=2e-4, max_steps=60, persist=False, verbose=False):
         if self._replay is None: self._replay = H.load(CFG["train_bin"])
         surprise = self._nll(fact)                                   # own prediction error
@@ -535,6 +561,7 @@ class Brain(nn.Module):
         lr_eff = base_lr * plasticity                               # self-set learning rate
         target = bound_n * 0.4           # learn well enough to RECALL (below familiarity),
                                          # but not to ~0 -- extreme over-memorizing bleeds
+        self._remember(fact, plasticity)  # subconscious: instant, surprise-gated -- recallable now
         self.store.append((fact, self._embed(fact)))
         fact_ids = torch.tensor([self.tok.encode(fact).ids], device=DEVICE)
         # CONSOLIDATION (generative self-replay): snapshot what the brain ITSELF
@@ -730,6 +757,7 @@ def live(brain):
         try: msg = input("you> ").strip()
         except (EOFError, KeyboardInterrupt): break
         if msg.lower() in ("quit", "exit"): break
+        if not msg and brain.learn: brain.sleep()    # idle downtime -> unreinforced subconscious traces fade
         tr = brain.interact(msg)
         if tr.get("learned") or tr.get("looked_up"): learned_anything = True
         _show(tr); print()
