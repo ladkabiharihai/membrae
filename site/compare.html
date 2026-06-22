@@ -111,7 +111,7 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
         <li><b>Alive.</b> Learns new facts online, forever, and remembers across sessions — no retraining.</li>
         <li><b>Knowledge can be taught and recalled</b> on the fly, with surprise-modulated plasticity.</li>
         <li><b>Confidence is intrinsic</b> — it abstains (“I don't know”) from its own uncertainty.</li>
-        <li><b>Power from mechanism</b>: tiny (176M), but causal, self-knowing, self-deciding.</li>
+        <li><b>Power from mechanism</b>: small and self-growing, but causal, self-knowing, self-deciding.</li>
       </ul></div>
   </div>
 </div></section>
@@ -123,7 +123,7 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
   <div class="tbl">
     <div class="row head"><div>Capability</div><div>Today's LLMs</div><div>Pragnosia</div></div>
     <div class="row"><div class="feat">Fluent language</div><div class="llmcol"><span class="yes">Strong</span> — document-level</div><div class="prgcol"><span class="part">Decent</span> — sentence-level (small)</div></div>
-    <div class="row"><div class="feat">World knowledge</div><div class="llmcol"><span class="yes">Vast</span></div><div class="prgcol"><span class="part">Limited</span> (176M can't store much)</div></div>
+    <div class="row"><div class="feat">World knowledge</div><div class="llmcol"><span class="yes">Vast</span></div><div class="prgcol"><span class="part">Limited</span> (small + undertrained for size)</div></div>
     <div class="row"><div class="feat">Reasoning depth</div><div class="llmcol"><span class="yes">Strong</span> (math, code, logic)</div><div class="prgcol"><span class="part">Shallow</span> but real & causal</div></div>
     <div class="row"><div class="feat">Causally-proven reasoning</div><div class="llmcol"><span class="no">Unverified</span></div><div class="prgcol"><span class="yes">Yes</span> — brain-swap test</div></div>
     <div class="row"><div class="feat">Knows what it doesn't know</div><div class="llmcol"><span class="part">Partial</span>, bolted on</div><div class="prgcol"><span class="yes">Built-in</span> — abstains</div></div>
@@ -150,9 +150,9 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
       <li><b>Nothing hardcoded</b> — what matters, when to abstain, what to recall: all derived from data, re-tuned as it grows.</li>
     </ul></div>
     <div class="col cons"><h3>Where it loses (for now)</h3><ul>
-      <li><b>Weak knowledge &amp; reasoning depth</b> — 176M simply can't match a billion-parameter model's breadth.</li>
+      <li><b>Weak multi-hop composition</b> — undertrained for its grown size; relational analogy, multi-step deduction and systematic generalization still lag. More tokens, not more parameters, is the lever.</li>
       <li><b>Can be confidently wrong</b> on familiar-but-incorrect facts (the same failure as big LLMs).</li>
-      <li><b>Slower per token</b> — the spinning core is sequential; it can't parallelize across time like pure attention.</li>
+      <li><b>The pure-spin reasoning core is sequential</b> by design — its tanh dynamics are what the brain-swap test verifies. (The <i>language</i> carrier is now a diagonal-complex <b>parallel scan</b>, so language training is no longer the bottleneck.)</li>
       <li><b>Not a finished product</b> — it's a research substrate proving mechanisms, not a polished assistant.</li>
       <li><b>Emergence unproven at scale</b> — one emergent mechanism (phase), but broad emergent skills need more scale.</li>
     </ul></div>
