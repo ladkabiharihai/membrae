@@ -62,6 +62,28 @@ def grow_width(model, add_mult=1):
         nn.init.zeros_(nb.mlp[2].weight[:, h_old:])        # new neurons: zero output
     return big
 
+@torch.no_grad()
+def shrink_width(model, new_mult):
+    """PRUNE every block's MLP from mlp_mult*d down to new_mult*d, keeping the most important
+    neurons (importance = ||input row|| * ||output col||), warm-started from THIS model's weights.
+    LOSSY -- this is NOT function-preserving: it drops capacity, so val ppl jumps and the model
+    must be RE-TRAINED (a warm start, far faster than scratch) to recover. The payoff: mlp_mult 12->4
+    is ~half the params = ~2x faster training, built ON TOP of the current model. Run it, then
+    --resume to recover. Always keep a backup of the original checkpoint first."""
+    assert new_mult < model.mlp_mult, "shrink_width only reduces mlp_mult"
+    nl = len(model.blocks); d = model.d; h_new = new_mult * d
+    big = _shell(model, nl, new_mult)
+    for i in range(nl):
+        ob, nb = model.blocks[i], big.blocks[i]
+        nb.ln1.load_state_dict(ob.ln1.state_dict()); nb.attn.load_state_dict(ob.attn.state_dict())
+        nb.ln2.load_state_dict(ob.ln2.state_dict())
+        win, wout = ob.mlp[0].weight, ob.mlp[2].weight            # [h,d] in, [d,h] out
+        imp = win.norm(dim=1) * wout.norm(dim=0)                  # per-neuron importance [h]
+        keep = torch.topk(imp, h_new).indices.sort().values      # keep the top-h_new neurons
+        nb.mlp[0].weight.copy_(win[keep]); nb.mlp[0].bias.copy_(ob.mlp[0].bias[keep])
+        nb.mlp[2].weight.copy_(wout[:, keep]); nb.mlp[2].bias.copy_(ob.mlp[2].bias)
+    return big
+
 
 def n_params(m): return sum(p.numel() for p in m.parameters())
 

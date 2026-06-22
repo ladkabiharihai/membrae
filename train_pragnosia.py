@@ -123,8 +123,10 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     print(f"[pragnosia] {p/1e6:.0f}M params | GPU {cfg['gpu']} {cfg['vram']}GB | "
           f"bs={bs} accum={accum} (eff {bs*accum}) bf16={bf16} compile={cfg['compile']} | "
           f"train_toks={td.size(0):,}", flush=True)
-    opt = (bnb.optim.PagedAdamW8bit if lowmem else torch.optim.AdamW)(
-        m.parameters(), lr=lr, weight_decay=0.05, betas=(0.9, 0.95))
+    def _mkopt(params, lr, wd=0.05):                                   # fused AdamW kernel on GPU (~5% faster
+        if lowmem: return bnb.optim.PagedAdamW8bit(params, lr=lr, weight_decay=wd, betas=(0.9, 0.95))
+        return torch.optim.AdamW(params, lr=lr, weight_decay=wd, betas=(0.9, 0.95), fused=(DEVICE == "cuda"))
+    opt = _mkopt(m.parameters(), lr)
     # identity injection (optional, env-gated)
     id_path = os.environ.get("PRAGNOSIA_IDENTITY")
     id_seqs = _load_identity(id_path) if id_path and os.path.exists(id_path) else None
@@ -151,7 +153,11 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     if best < 1e9: print(f"resumed model val_ppl={best:.2f} -- will only save if training beats it", flush=True)
     t0, run_loss = time.time(), None
     no_improve, grow_patience, grow_count = 0, 5, 0                   # grow-as-you-train
-    max_layers, max_mlp_mult = 48, 12                                # safety caps; VRAM is the real limit
+    max_layers, max_mlp_mult = 48, 4                                 # FLOP-efficient shape: grow by DEPTH,
+                                                                     # keep the MLP lean (mlp_mult<=4). A wide
+                                                                     # mlp_mult=12 just inflates params (=FLOPs)
+                                                                     # for little gain; depth at mlp4 is the
+                                                                     # better capability-per-FLOP trade.
     pbar = tqdm(range(1, steps + 1), desc="pragnosia", dynamic_ncols=True, mininterval=4,
                 file=sys.stdout, smoothing=.05)
     for it in pbar:
@@ -222,7 +228,7 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                 import grow as G
                 free = (torch.cuda.mem_get_info()[0] / 2**30) if DEVICE == "cuda" else 99
                 can_depth = len(m.blocks) < max_layers; can_width = m.mlp_mult < max_mlp_mult
-                want_width = grow_count % 2 == 1                        # alternate for balance
+                want_width = can_width and not can_depth               # DEPTH-FIRST; widen only if depth is capped
                 mode = ("width" if (want_width and can_width) or not can_depth else "depth") if (can_depth or can_width) else None
                 if free <= 4.0 or mode is None:
                     grow_enabled = False
@@ -236,8 +242,7 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                         m = cand; CFG["layers"] = len(m.blocks); CFG["mlp_mult"] = m.mlp_mult
                         json.dump(CFG, open("pragnosia.json", "w"), indent=2)   # in sync for --resume
                         bs, accum = nb, max(1, 64 // nb)
-                        opt = (bnb.optim.PagedAdamW8bit if lowmem else torch.optim.AdamW)(
-        m.parameters(), lr=lr, weight_decay=0.05, betas=(0.9, 0.95))
+                        opt = _mkopt(m.parameters(), lr)
                         if id_seqs: id_opt = torch.optim.AdamW(m.parameters(), lr=id_lr, betas=(0.9, 0.95))  # retarget grown params
                         if pf: pf._stop = True; pf = H.Prefetcher(td, bs, depth=4)   # rebuild for new bs
                         def get_batch(): return pf.next() if pf else H.batch(td, bs)
