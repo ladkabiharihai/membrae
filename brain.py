@@ -281,9 +281,15 @@ class Brain(nn.Module):
         if not (recall and float(self.mem.energy()) > 0):
             out = self.lm.generate(ids, n_new=n, window=self.cfg["ctx"], temp=temp, rep=rep)
             return self.tok.decode(out).strip()
+        import math
         out = []
         for _ in range(n):
-            lo = self._recall_logits(ids + out).float()
+            r = self.lm.represent(torch.tensor([(ids + out)[-self.cfg["ctx"]:]], device=DEVICE))[0, -1].float()
+            base = self.lm.head(r.to(self.lm.head.weight.dtype)).float()
+            rec = self.lm.head(self.mem.read(r).to(self.lm.head.weight.dtype)).float()
+            p = F.softmax(base, -1); ent = float(-(p * torch.log(p + 1e-9)).sum())
+            alpha = min(1.0, ent / math.log(base.numel()))     # 0=confident (trust the model) .. 1=unsure (let memory speak)
+            lo = (1 - alpha) * base + alpha * rec
             for t in set((ids + out)[-40:]): lo[t] /= rep
             nx = lo.argmax().item() if temp <= 0 else torch.multinomial(F.softmax(lo / temp, -1), 1).item()
             if nx == 0: break

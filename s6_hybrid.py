@@ -185,35 +185,47 @@ class SpinAttentionLM(nn.Module):
         return self.lnf(h)                       # (B,T,d) contextual representation
 
 class FastWeightMemory(nn.Module):
-    """In-weights SUBCONSCIOUS memory (not RAG): a fast-weight associative store F that lives
-    INSIDE the model (a buffer, part of the weights). Written by SURPRISE during experience
-    (Hebbian, no gradient), recalled additively into the hidden stream, decaying over time
-    (forgetting). Consolidated into the slow weights during 'sleep'. Mirrors hippocampal fast
-    plasticity -> neocortical consolidation, the brain's real answer to active vs subconscious."""
-    def __init__(self, d, decay=0.95):
+    """In-model SUBCONSCIOUS = a hippocampal EPISODIC store (NOT RAG): it holds the brain's OWN
+    hidden states as (key=context-rep -> value=next-token) traces, written by SURPRISE, and recalled
+    by the model's own ATTENTION (softmax over the keys -> SELECTIVE, so distinct facts don't
+    cross-talk). Traces decay (forgetting) and are consolidated into the slow weights ('neocortex')
+    during sleep. Stores the model's representations, not external text -> in-model, not retrieval."""
+    def __init__(self, d, cap=4096, decay=0.97):
         super().__init__()
-        self.d = d; self.decay = decay
-        self.register_buffer("F", torch.zeros(d, d))            # the fast store -- in the weights
-        self.gate = nn.Parameter(torch.tensor(-2.0))           # read ceiling sigmoid(-2)=0.12: a GENTLE bias.
-                                                               # (Summed-F recall cross-talks across many facts;
-                                                               # strong selective recall needs a modern-Hopfield
-                                                               # attention over stored states -- the next iteration.)
-    def read(self, h):                                          # associative recall, added to the stream
-        recall = h @ self.F.t()
-        # cap the recall at a gentle fraction (the gate) of the representation's OWN magnitude, so a
-        # strong/accumulated store biases the next token WITHOUT dominating and degenerating output.
-        cap = torch.sigmoid(self.gate) * h.norm()
-        return h + recall * torch.clamp(cap / (recall.norm() + 1e-6), max=1.0)
+        self.d = d; self.cap = cap; self.decay = decay
+        self.register_buffer("K", torch.zeros(0, d))           # unit context keys
+        self.register_buffer("V", torch.zeros(0, d))           # next-token value embeddings
+        self.register_buffer("S", torch.zeros(0))              # trace strength (surprise, decaying)
+        self.gate = nn.Parameter(torch.tensor(1.0))            # recall strength when something MATCHES
+        self.sharp = nn.Parameter(torch.tensor(4.0))           # attention selectivity (softmax temperature)
     @torch.no_grad()
-    def write(self, key, value, surprise):                     # instant, surprise-gated Hebbian write
-        k = key / (key.norm() + 1e-6)                          # unit key -> alignment is a clean cosine match
-        self.F.mul_(self.decay).add_(float(surprise) * torch.outer(value, k))
+    def write(self, key, value, surprise):
+        k = (key / (key.norm() + 1e-6)).unsqueeze(0).to(self.K)
+        self.K = torch.cat([self.K, k]); self.V = torch.cat([self.V, value.unsqueeze(0).to(self.V)])
+        self.S = torch.cat([self.S, torch.tensor([float(surprise)], device=self.S.device)])
+        if self.K.size(0) > self.cap:                          # evict the weakest trace at capacity
+            keep = self.S.argsort(descending=True)[:self.cap]
+            self.K, self.V, self.S = self.K[keep], self.V[keep], self.S[keep]
+    def read(self, h):
+        if self.K.size(0) == 0: return h
+        hn = h / (h.norm() + 1e-6)
+        sims = self.K @ hn                                      # cosine of h to each stored key
+        w = torch.softmax(sims * F.softplus(self.sharp), 0) * self.S    # SELECTIVE, strength-weighted
+        recall = w @ self.V                                    # the matched trace's value (not a blur of all)
+        recall = recall / (recall.norm() + 1e-6) * h.norm()    # scale to h's magnitude so it can steer the head
+        conf = sims.max().clamp(min=0.0)                       # strong recall ONLY when h really matches a key
+        return h + torch.sigmoid(self.gate) * conf * recall
     @torch.no_grad()
-    def tick(self):  self.F.mul_(self.decay)                    # time passes -> unreinforced traces fade
+    def tick(self):                                            # time passes -> traces fade; drop the faded
+        if self.S.numel() == 0: return
+        self.S = self.S * self.decay
+        keep = self.S > 0.05 * float(self.S.max())
+        self.K, self.V, self.S = self.K[keep], self.V[keep], self.S[keep]
     @torch.no_grad()
-    def energy(self): return float(self.F.norm())               # how much is held subconsciously now
+    def energy(self): return float(self.S.sum()) if self.S.numel() else 0.0
     @torch.no_grad()
-    def reset(self): self.F.zero_()                             # after consolidation into slow weights
+    def reset(self):
+        self.K, self.V, self.S = self.K[:0], self.V[:0], self.S[:0]
 
 def n_params(m): return sum(p.numel() for p in m.parameters())
 
