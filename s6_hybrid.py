@@ -207,9 +207,11 @@ class SpinAttentionLM(nn.Module):
         B, T = x.shape
         pos = torch.arange(T, device=x.device)
         h = self.emb(x) + self.pos(pos)[None]
-        for b in self.blocks:
+        mode = getattr(self, "carrier_mode", "single")             # mirror forward(): carrier placement varies
+        for i, b in enumerate(self.blocks):
             h = b(h)
-        h, _ = self.carrier(h, None)
+            if mode == "per_block": h, _ = self.carriers[i](h, None)
+        if mode == "single": h, _ = self.carrier(h, None)
         return self.lnf(h)                       # (B,T,d) contextual representation
 
 class FastWeightMemory(nn.Module):
