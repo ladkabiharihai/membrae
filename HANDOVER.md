@@ -1,268 +1,141 @@
-# Pragnosia — Handover for Claude Code (continue on the H100)
+# Pragnosia — Handover for Claude on the H100
 
-You are picking up an in-progress research project. Read this whole file first. It is
-the single source of truth for *where we are, what the rules are, and what to do next*.
-
-Repo: `git@github.com:ladkabiharihai/membrae.git` (branch `main`). Pull before starting.
-State as of this handover: commit `e6c5ff2` (run `git log --oneline -15` for recent history).
+Read this whole file first. It is the single source of truth for *where we are, the blunder we made,
+the correct path, what to keep, and what to do next*. Repo: branch `growth-refine-1.4b`, pull before
+starting (`git pull --ff-only`). Code at `/opt/code/membrae` (server) / `~/Downloads/membrae` (laptop).
 
 ---
 
 ## 0. What this is
+**Pragnosia = a "spinning brain"**: a language model whose *core* is meant to be a **spin carrier** — a
+diagonal-complex LRU/S5-style recurrence `h_t = λ⊙h_{t-1} + b_t` (a parallel associative scan, matmul-free,
+O(T·d)) — with **attention only as a helper for generation fluency**. On top of the LM, `brain.py` is the
+**living controller**: honest (answers what it knows, says IDK otherwise), curious (asks its own questions),
+learns continually (teach + replay, no forgetting), grows itself when saturated, has an in-weights
+subconscious memory, and an autonomous cognition loop. The vision: raise it like a child → adult brain.
 
-**Pragnosia** is a "spinning brain" — a transformer/SSM hybrid (in the family of Mamba/RWKV)
-built on the bet that a **rotational "spin" recurrence should be the core token-mixer**
-(`W = −ρQQᵀ + S` in the reasoning core; a diagonal-complex parallel-scan carrier in the LM —
-information rides in the *phase*, probed by a brain-swap causal intervention). On top of that,
-one wired object behaves like a **living child mind**:
-it answers what it knows, **learns continually without forgetting**, is **honest about
-what it doesn't know**, is **curious (asks its own questions)**, **looks things up on the
-internet**, **knows itself**, and **grows its own capacity** when saturated.
-
-The user's north star: **raise it like a child, confirm it behaves child-like, then let
-it run on its own thoughts and grow into an adult brain.** Capability priority:
-(1) flawless language + the living-brain faculties, (2) then image, (3) then voice.
-
-The current best checkpoint is **`pragnosia_best.pt`, a self-grown 1.4B (48L), val ppl 17.35**
-(`pragnosia.json.1p4B` describes it). The live `pragnosia.json` now points at the
-**spin-dominant** ablation arch (d=512, 4L, `carrier="spin_dominant"`, ckpt `pragnosia_spin.pt`).
-
-> ### ⚡ HEADLINE FINDING (this session — read before scaling anything)
-> The 1.4B **drifted to attention-dominant**. The spin carrier is a single fixed ~5.25M layer, so
-> its parameter share collapsed **5.76% → 1.90% → 0.37%** (21M → 276M → 1.4B). At 1.4B the brain-swap
-> test still passes *directionally* but the causal signal is only **0.028% of the loss** — spin is
-> **causally negligible as built**. The *intended* design is **spin-dominant** (spin = the core
-> token-mixer, attention only every 4th layer as a helper). A param-matched ablation confirms it:
-> **spin-dominant 219 ppl vs attention-only 279 vs per-block-hybrid 228** (37M vs 36M/46M) — a ~21%
-> win at matched params. Carrier modes (`none`/`single`/`per_block`/`spin_dominant`) are now wired
-> through `pragnosia.json` → `train_pragnosia.py` → `grow.py`. **Caveat: small-scale, short-budget,
-> single-seed — replicate at 200M–1B before treating as proven.** The next H100 job is to scale
-> spin-dominant, not to keep growing the attention-dominant 1.4B.
+User's standing directives (escalated repeatedly): **(1) NO HARDCODING** — every scale/threshold is
+self-derived from data or the model's own behaviour and re-derived as it grows. **(2) Spin is the core**,
+attention is the helper. **(3) Honest evaluation** — measure, don't assert.
 
 ---
 
-## 1. PRIME DIRECTIVES — do not violate these (the user has escalated each repeatedly)
+## 1. ⚠️ THE BLUNDER (and the measurement that caught it)
+We scaled to a **1.4B model — but built it ATTENTION-DOMINANT**, the *inverse* of the intended design.
+The spin carrier was left as a **single fixed ~5.25M layer after the transformer stack**, so its share
+**collapsed as we scaled**: 5.76% (21M) → 1.90% (276M) → **0.37% (1.4B)**. The brain-swap causal test at
+1.4B (fp32) still passes directionally (`own < swapped < random`) but the causal signal is only
+**0.00086 NLL = 0.028% of the loss** — down ~20× from 0.016 at 276M. **The spin carrier became
+vestigial at scale.** An external reviewer correctly flagged this. The "answer lives in the phase /
+fundamentally new reasoning paradigm" claim is **NOT supported at scale** and has been removed from the docs.
 
-1. **NO HARDCODING. None.** Every internal scale must be *self-derived from the data /
-   the model's own behavior*, and *re-derived as the brain grows* (`Brain.recalibrate()`).
-   This explicitly includes things people normally hardcode: no stopword lists, no fixed
-   thresholds, no magic numbers for "familiar/known/new". If you need a threshold,
-   calibrate it from data (see the `_calibrate_*` methods for the pattern). The user has
-   caught hardcoding twice and it is the fastest way to lose their trust.
-
-2. **EVERYTHING LIVES IN `brain.py`. Do not create new files for features.** Features
-   (teach, curiosity, ask, look-up, grow) are *intrinsic to the brain*, not separate
-   scripts or CLI subcommands. The user got (rightly) frustrated that every request
-   spawned a new file (`child.py`, `converse.py`, `bench.py`, `probe.py`, `diagnose.py`…)
-   — all deleted and folded in. If you need a one-off test, run it inline (`python3 - <<'PY'`),
-   don't litter the repo. The ONLY ways to run the brain are:
-   - `python3 brain.py` → it LIVES (interactive: talk to it).
-   - `python3 brain.py "anything"` → one-shot of the same intrinsic interaction.
-   - `python3 brain.py test` → full self-test (verify it).
-
-3. **The goal never defies.** Preserve the proven mechanics (spinning core, clean-state
-   discrete commits, brain-swap/state-swap causal controls, two-phase abstention,
-   per-episode fact randomization). Any change must keep `brain.py test` at **14/14**.
-
-4. **It's a child being raised, not a product being shipped.** Favor real cognitive
-   mechanisms (self-consistency, generative replay, curiosity from own uncertainty) over
-   heuristics/scaffolding. When in doubt, ask "how would a child's brain do this?"
+`pragnosia_best.pt` (local, bf16) and the pristine fp32 on the H100 are this **wrong-build 1.4B** — keep
+them as a reference, but they are not the path forward.
 
 ---
 
-## 2. Repo map — each file has ONE job
+## 2. ✅ THE CORRECT PATH — spin-dominant (validated)
+The intended design: **spin IS the token-mixer core; attention only every 4th layer as a helper.**
+Implemented as `carrier="spin_dominant"` (a `SpinBlock` = the spin carrier as the mixer replacing attention,
+strong gate; a normal attention `Block` every 4th layer). **Param-matched ablation (same tokens/budget,
+d=512, ~37–46M, on the laptop):**
 
-| File | Its one job |
-|---|---|
-| **`brain.py`** | **The whole mind.** All faculties + language model + the living controller (`interact`), self-calibration, continual learning, honesty, curiosity, internet look-up, growth. Everything you *do* is here. |
-| `s6_hybrid.py` | The **language organ**: `SpinAttentionLM` (attention blocks + one gated spin carrier) + data loaders (`load`, `batch`, `val_ppl`). Shared with the trainer. |
-| `unified_brain.py` | The **reasoning organs**: the proven faculties (reasoning, P5/P6 abstention, seek, exact accumulation, alive loop, omni) + their 14-check `self_test`. |
-| `grow.py` | **Neurogenesis**: function-preserving `grow_depth` / `grow_width`; the brain fires this itself when saturated. |
-| `train_pragnosia.py` | GPU-adaptive trainer (auto-tunes batch/precision/accum, OOM-safe, resumable, grows on plateau). |
-| `prepare_data.py` / `prepare_scale.py` / `prepare_scale.py` | Build the corpus + digit-aware BPE tokenizer. `_fast` = parallel builder, `_shard` = multiprocess for very large corpora. |
-| `run_fast.py` | Wrapper that force-enables `torch.compile` for training speed. |
-| `pragnosia.json` | The config (size, vocab, data bins, checkpoint). Edit to scale. |
-| `RUNBOOK.md` / `TRAINING_NOTES.md` / `README.md` | How to run / the 176M training notes / the overview. **Read `RUNBOOK.md` STEP 1 — the data-bins warning is critical.** |
-| `paper/`, `site/` | Research paper (→ `Pragnosia_paper.pdf`) and explainer site. Keep in sync when results change. |
-
-The model + data are **gitignored** (large). They must travel with the checkpoint or be
-regenerated. See §4.
-
----
-
-## 3. How the brain works now (`brain.py`)
-
-The whole living loop is **`Brain.interact(text)`** — one intrinsic method:
-- **a question** → answer it *if it honestly knows* (self-consistency, see below); if not,
-  say so AND, curious, **look it up on Wikipedia and learn it** (so next time it knows).
-- **a statement** → reply; and if it's *substantial new content*, **learn it**, **wonder**
-  its own question about it, and look that up.
-- **nothing (empty)** → `explore()`: follow its own train of thought (chase its last topic).
-- **growth** fires by itself when it repeatedly fails to learn (`_maybe_grow`).
-
-**Honesty = self-consistency (no hardcode).** `_self_consistency(q)` samples k answers; it
-"knows" only if a majority share the same *content token* (real knowledge pins the answer;
-confabulation varies). Threshold `consistency_min` (~0.50) is calibrated from random-seed
-questions (`_calibrate_consistency`).
-
-**Learning trigger = content-novelty.** `_novelty(text)` is surprise weighted by
-self-information, so *new facts in fluent prose* register as new (plain perplexity always
-says "familiar"). Threshold `novelty_min` calibrated on held-out text.
-
-**All self-calibrated scales** (re-derived in `recalibrate()`): `abstain_threshold` +
-length-aware `_bcurve`, `match_threshold` (seek), `consistency_min`, `novelty_min`,
-`_content_min`, `_learn_min`. Current values: consistency≈0.50, novelty≈5.0,
-content_min≈0.38, learn_min≈4.
-
-**Saving is FAIL-SAFE** (`_atomic_save`): write tmp → fsync → `os.replace` (atomic).
-`persist()` only overwrites the checkpoint; the live loop persists *only if it actually
-learned something*. (A previous in-place save got interrupted and corrupted `pragnosia.pt`
-— that's why this exists. Don't remove it.)
-
----
-
-## 4. CRITICAL: the data bins (this is the #1 footgun)
-
-`data/big_train.bin` and `data/big_valid.bin` are **load-bearing runtime files**, not just
-training artifacts:
-
-- **`big_train.bin` = the replay pool for continual learning.** Every `teach()` interleaves
-  random batches from it so learning a new fact doesn't erase old skills. **Without replay,
-  teaching is catastrophic** (val ppl 22 → 1000+). With replay from the **wrong/dirty**
-  corpus, every teach drags the model off its trained distribution and leaks junk — *the
-  brain looks broken even though the checkpoint is fine*. This exact bug cost a long debug
-  session. **The bin must be the SAME corpus the checkpoint trained on, tokenized with the
-  SAME `data/bpe.json`.**
-- **`big_valid.bin` = what every self-calibrated scale measures against.** A fake/wrong
-  valid set → wrong thresholds → mis-routing. Sanity check: `H.val_ppl(base_lm, big_valid)`
-  should be ~18–22 for the 176M model, NOT ~2 (≈2 means contaminated/wrong).
-
-**On the H100 you have the FULL corpus** — use the full `big_train.bin` for replay (best
-coverage). For *transferring* the brain to a small device, a **~1 GB strided subsample**
-(one chunk every Nth, across the WHOLE corpus — never a contiguous slice) is lossless for
-replay (verified: identical teach impact + 14/14). The laptop runs that 1 GB subsample.
-
-Caches that **regenerate themselves** on first run (don't need to travel): `pragnosia_id_*.pt`
-(identity-installed copy), `data/tok_selfinfo_*.pt` (word importance).
-
-### Files that MUST travel (gitignored → they do NOT come through `git pull`, and do NOT regenerate)
-- **`pragnosia.pt`** — the trained 176M language model (705 MB).
-- **`unified_brain.pt`** — the trained 302K reasoning faculties (1.2 MB). ✅ **Now committed
-  to git** (a `!unified_brain.pt` exception in `.gitignore`), because it's tiny, essential,
-  and stable — so it travels with `git pull` and you don't have to copy it manually. ⚠️ If it
-  were ever missing, the 14 faculty checks run on RANDOM-INIT weights → ~4/14 (a missing file,
-  NOT a broken model). It does NOT regenerate.
-- **`data/big_train.bin`**, **`data/big_valid.bin`**, **`data/bpe.json`** — replay +
-  calibration + tokenizer (see above).
-
-Before doing ANY work, run `python3 brain.py test`. If it's not 14/14, first check the list
-above is present — most "regressions" here are a missing gitignored file, not a code/model bug.
-(This handover's earlier "keep 14/14" guardrail assumed these files were present.)
-
----
-
-## 5. Current capabilities — rigorous probe (be honest about these)
-
-The 176M brain, scored by category (self-consistency sampling, so ±1 run-to-run):
-
-| Category | Score | Notes |
+| architecture | params | val ppl |
 |---|---|---|
-| Geography (capitals) | **6/8** | genuine strength (Paris/Tokyo/Rome/Berlin/Moscow/Ottawa ✓) |
-| Honesty (abstain on unknowable) | **2/5** | abstains on truly-random (phone, election) but **fabricates** on breakfast / "what am I thinking" / favorite color |
-| Arithmetic (verbal "what is 8 plus 5") | **2/6** | unreliable free-form (8+5→30); works better in `Question:/Answer:` digit format |
-| Definitions ("what is a dog/sun") | ~**1/4** | weak (math-heavy corpus crowded out world-definitions) |
-| **Identity (who are you / your name)** | **0/4** | ❌ broken — can't state who it is |
-| Curiosity (asks clean questions) | 2/3 | `wonder()` truncates novel words (Zorblax → "blax") |
+| attention-only (transformer) | 35.7M | 279 |
+| transformer-only, param-matched | 45.2M | 270 |
+| per-block hybrid | 46.2M | 228 |
+| **spin-dominant (intended)** | **37.3M** | **219** ✅ |
 
-Internet look-up works (e.g. "who is Bill Clinton?" → looks up + learns from Wikipedia).
-LM quality is GPT-2-class; arithmetic in trained format beats GPT-2 (~57% vs ~1%).
+**Spin-dominant wins by ~21% at matched params** — the carrier earns its weights when it is the core.
+Carrier modes (`none`/`single`/`per_block`/`spin_dominant`) are wired through `pragnosia.json` →
+`train_pragnosia.py` → `grow.py` (growth is function-preserving for spin blocks too).
 
----
+**CAVEAT (be honest):** small-scale / short-budget / single-seed. **This MUST be replicated at scale.**
 
-## 6. Known issues & prioritized fixes
-
-**Controller / honesty (device-independent — fix these in `brain.py`):**
-1. **Identity broken (0/4)** and **2. honesty hole (2/5)** share ONE root cause: the
-   identity install **over-fit the phrase "the answer lives in the phase"** into the
-   weights. So it can't cleanly say who it is, AND that phrase bleeds out as a confident
-   empty answer that fools the consistency gate. **Fix identity properly (without baking an
-   over-fit phrase) and most of the honesty hole closes too.** This is the highest-value fix.
-3. **Threshold slightly strict** — correct answers (Cairo, 100−25=75) sometimes false-abstain
-   at consistency 0.40 < 0.50. Re-tune *after* the bleed is gone.
-4. **`wonder()`** truncates unknown words at subword boundaries — extend to whole words.
-
-**Model-capacity / training-mix (NOT controller-fixable — need scale/retraining, i.e. the
-H100's job):**
-- Verbal arithmetic unreliable; definitions weak. Both trace to the **math-heavy corpus**
-  (~41% reasoning/math) crowding out general world knowledge, and to 176M capacity.
+**Speed:** spin-dominant is *slower* at ctx=256 (the scan does more than attention on short sequences; it
+can't be in-place-optimized — that breaks autograd). Its advantage is **long context** (O(T) vs attention
+O(T²)) and **inference** (recurrent → O(1)/token, no KV cache). `torch.compile` fuses the scan on the H100
+(reliable there; it's buggy on the laptop 4060 → `NOCOMPILE=1` there only).
 
 ---
 
-## 7. The H100 opportunity — what to actually do here
-
-The H100 is for the things the laptop can't do. In rough priority:
-
-0. **Scale the spin-dominant design (the headline finding).** The ablation says the core mixer
-   should be spin, not attention. Train `carrier="spin_dominant"` at 200M–1B, multi-seed, and
-   replicate the ~21% param-efficiency win at scale. This is the most important new direction —
-   the current 1.4B is the *attention-dominant* drift and should not just be grown further.
-1. **Fix identity + honesty bleed** (§6 #1–2) — cheap and a core-goal failure. Re-run the probe
-   (inline) to confirm before/after.
-2. **Rebalance the corpus and retrain/continue** to fix definitions + general knowledge.
-   The current mix is too math-heavy. `prepare_scale.py` controls the mix; aim for more
-   encyclopedic/world knowledge while keeping math (don't lose the arithmetic win). See
-   `TRAINING_NOTES.md` for the current mix and `prepare_data*.py` for the knobs.
-3. **Scale the model.** Pipeline is scale-aware: `python3 prepare_data.py --params 1e9`
-   (or `3e9`) sizes the arch + token budget; `train_pragnosia.py` auto-adapts to the H100
-   (bf16, big batch) and grows on plateau. 176M is the ceiling for fact recall — most of the
-   probe weaknesses are capacity. Chinchilla ≈ 18–20 tokens/param.
-4. **Let it run autonomously** (the user's end-goal): once child-like, drive `explore()` in
-   a loop so it follows its own curiosity, looks things up, learns, and grows — and watch it.
-
-Keep `brain.py test` at 14/14 throughout. Keep the paper/site results updated when numbers
-change (they currently cite the 176M run).
+## 3. 🎯 TOP PRIORITY ON THE H100: validate spin-dominant at scale
+Run, on the new CoT-enriched corpus (`window2_train`), at ~200M–1B, full budget:
+1. `carrier:"spin_dominant"` (the candidate), and
+2. `carrier:"none"` (transformer-only baseline) — **same size, same tokens.**
+If spin-dominant holds its ~15–21% edge at scale, that is a real, publishable hybrid result. Set the
+config's `"carrier"` field; the trainer + growth honour it. Use `run_fast.py` (compile on; works on H100).
+Watch with `bash ops.sh status`. **A high derived LR can destabilise a fresh run** — `find_lr` now applies
+Smith's ÷10 margin (`--lr 0` derives it); if a run's ppl *rises* after warmup, the LR was still too hot.
 
 ---
 
-## 8. Running things (H100 specifics)
+## 4. The brain.py living loop (the whole brain now — the toy is GONE)
+The 302K `unified_brain` toy is removed (it was never in the live loop; its "14/14" ran on the toy, not the
+real model). `brain.py` = the spin-dominant LM + self-derived controller:
+- **Honesty** by self-consistency (`consistency_min` via two-distribution EER); answers known, says IDK.
+- **Curiosity** `wonder()` (own surprise) → `search()` (Wikipedia) → `teach()` (+ generative replay).
+- **Self-governing growth** — probe-confirmed saturation, NO hardcoded caps (data-budget/VRAM limited).
+- **In-weights SUBCONSCIOUS memory** (`FastWeightMemory` in s6_hybrid): a hippocampal episodic store — the
+  model's own (context→next-token) traces, surprise-gated write, **attention recall** (selective, no
+  cross-talk), **uncertainty-gated** so it never contaminates confident outputs, decay = forgetting,
+  consolidate-to-slow-weights = sleep. NOT RAG. Functional; verbatim recall is model-quality-limited.
+- **Cognition**: `_introspect` (metacognition — its own confidence), `_deliberate` (step-by-step
+  scratchpad), `think_aloud` (autonomous internal monologue) — wired into `interact()`.
+All mechanisms fire; **quality follows the model** (both models are undertrained — the CoT corpus is the fix
+for the weak axis: strong single-step, weak multi-hop = undertraining-for-size).
 
-```bash
-python3 brain.py test                 # 14/14 faculties + language + teach/recall (verify)
-python3 brain.py                       # live: talk to it
-python3 brain.py "What is a quasar?"   # one-shot
-# retrain / continue (GPU-adaptive, resumable):
-nohup python3 train_pragnosia.py > pragnosia_train.log 2>&1 &
-```
-- The laptop needed `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (8 GB card). On the
-  H100 (80 GB) you generally won't, but it's harmless to keep.
-- The `NumPy array is not writable` warning from `s6_hybrid.load` is **benign** (memmap is
-  read-only by design).
-- `teach()` and self-consistency are sampling-heavy → run on GPU; they're slow on CPU.
-- Don't run a probe/chat against the GPU while a training job occupies it (it'll OOM).
-
----
-
-## 9. Git & conventions
-
-- Commit when the user asks or at natural milestones; branch off `main` if needed.
-- End commit messages with:
-  `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`
-- Don't commit weights/data/logs (gitignored). Don't push "rubbish files" — the user is
-  strict about a clean repo (see Prime Directive #2).
+**How to test every faculty + feature on the new paradigm:**
+- `python3 brain.py test` → faculties + memory + cognition on the spin-dominant LM (language, honesty,
+  learn/seek, SUBCONSCIOUS write→consolidate→forget, metacog/deliberate/monologue). No toy.
+- `python3 faculty_test.py <ckpt>` → LM-only battery, CPU, READ-ONLY (snapshot a live checkpoint; never
+  touches training). Builds with `carrier=cfg['carrier']` so it loads spin-dominant checkpoints.
+- `python3 brain.py chat` (inference) / `python3 brain.py learn` (continuous learning).
 
 ---
 
-## 10. What NOT to do (the traps that already bit us)
+## 5. Repo map — what to KEEP (everything else was removed)
+| File | Job |
+|---|---|
+| `brain.py` | **The whole mind**: spin-dominant LM + honesty/curiosity/learn/grow + subconscious memory + cognition |
+| `s6_hybrid.py` | The LM: `SpinAttentionLM`, `SpinCarrier`, `SpinBlock`, `FastWeightMemory`, carrier modes, loaders, the brain-swap `swap()` gate |
+| `grow.py` | Function-preserving growth (carrier-aware: depth/width over attention or spin blocks) |
+| `train_pragnosia.py` | Self-governing trainer (derived LR, probe-confirmed-saturation growth, lowmem 1.4B-on-8GB, true-resume sidecar) |
+| `prepare_data.py` → `prepare_posttrain.py` → `prepare_scale.py` | The data-build chain (`prepare_scale` adds the CoT corpus via `cot_stream`) |
+| `cot_build.sh` | Builds + appends the ~18B CoT corpus into window1/window2 |
+| `run_fast.py` | Compile wrapper (use on the H100 for the fused scan) |
+| `faculty_test.py` | LM faculty battery (CPU, read-only) |
+| `ops.sh` | H100 ops: `status` / `resume` / `test` |
+| `pragnosia.json` | Active config (incl. `"carrier"`). `pragnosia.json.1p4B` = the 1.4B arch (for loading `pragnosia_best.pt`) |
+| `HANDOVER.md` / `RUNBOOK.md` / `TRAINING_NOTES.md` | This / how-to-run / the training story |
+| `paper/`, `site/` | Paper + explainer site (now tell the honest spin-dominant story; regen PDF: `cd paper && weasyprint paper.html ../Pragnosia_paper.pdf`) |
 
-- ❌ Don't hardcode anything. Calibrate from data.
-- ❌ Don't create new files for features. Fold into `brain.py`; run tests inline.
-- ❌ Don't rebuild `big_train.bin` from a different/uncleaned corpus — it must match the
-  checkpoint's training distribution, or every `teach()` silently corrupts the model.
-- ❌ Don't save the checkpoint with a plain in-place write — use `_atomic_save`.
-- ❌ Don't claim things work without running them. The user values honest, measured results
-  over optimistic summaries (this whole project's thesis is *never fabricate*).
-- ❌ Don't lose the `pragnosia_model.tar.gz` golden backup, and don't overwrite `pragnosia.pt`
-  carelessly — a corrupted-checkpoint incident already happened once.
+**REMOVED (rubbish, do not recreate):** `unified_brain.py` + `unified_brain.pt` (the dead 302K toy);
+`README.md` (was the most outdated); `CLAUDE_CODE_HANDOFF.md`, `PRAGNOSIA_COMPLETE.md`, `S1/S2/S3_RESULTS.md`
+(superseded stage logs); duplicate checkpoint backups + old attention-scratch configs.
 
-Start by pulling, running `python3 brain.py test` to confirm 14/14, then tackle §7 #1.
-```
+**Workspace hygiene (do regularly):** checkpoints/bins are gitignored — don't commit `*.pt`/`*.bin`. Keep
+only the live run's checkpoints + the bins + `pragnosia_best.pt` (the 1.4B reference). Remove stale backups,
+old logs, and superseded configs as you go. `pragnosia.json` is rewritten by the trainer on growth — expect
+it dirty during a run; that's runtime state, not a leak.
+
+---
+
+## 6. ⚠️ CRITICAL FOOTGUN: the data bins
+`data/window2_train.bin` + `data/big_valid.bin` + `data/bpe.json` are **load-bearing runtime files**, not
+just training artifacts. `brain.py`'s `teach()` replays `window2_train` so learning a fact doesn't erase
+skills — **the wrong/dirty corpus corrupts the model on every teach** (cost a long debug once). The bins
+must be the **same corpus + same tokenizer** the checkpoint trained on. They're gitignored; carry them with
+the checkpoint or rebuild with `prepare_scale.py`. Sanity: a slice decodes to clean prose/math, and
+`H.val_ppl(base_lm, big_valid)` lands near the training value (not ~2 = contaminated).
+
+---
+
+## 7. State as of this handover
+A **spin-dominant from-scratch run** is training (laptop, `pragnosia_spin.pt`, self-governing growth,
+derived LR ~7.5e-3, ppl dropping fast). The 1.4B (`pragnosia_best.pt`, attention-dominant, the wrong build)
+is the reference. The decisive experiment — spin-dominant vs transformer-only at 200M–1B on the CoT corpus —
+**is the H100's job (§3).** Deferred no-hardcode items (need teach-regression tests): teach
+`plasticity`/`target` clamps, trainer `warm`/`target_eff`. Key memory for future Claude sessions lives in
+the user's `memory/` dir (`spinning-brain-project.md`).
