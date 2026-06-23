@@ -113,13 +113,17 @@ class SpinCarrier(nn.Module):
 
 class SpinAttentionLM(nn.Module):
     """Attention-dominant for quality + one spin carrier for cross-token state."""
-    def __init__(self, vocab=VOC, d=512, n_head=8, n_layer=3, mlp_mult=4):
+    def __init__(self, vocab=VOC, d=512, n_head=8, n_layer=3, mlp_mult=4, carrier="single"):
         super().__init__()
-        self.d = d; self.mlp_mult = mlp_mult; self.n_head = n_head
+        self.d = d; self.mlp_mult = mlp_mult; self.n_head = n_head; self.carrier_mode = carrier
         self.emb = nn.Embedding(vocab, d)
         self.pos = nn.Embedding(4096, d)
         self.blocks = nn.ModuleList([Block(d, n_head, mlp_mult) for _ in range(n_layer)])
-        self.carrier = SpinCarrier(d)
+        if carrier == "single":                                          # one carrier after all blocks (default):
+            self.carrier = SpinCarrier(d)                                #   its share -> 0 as depth grows
+        elif carrier == "per_block":                                     # one carrier per block: share stays
+            self.carriers = nn.ModuleList([SpinCarrier(d) for _ in range(n_layer)])  # constant as the model scales
+        # carrier == "none": transformer-only (ablation baseline)
         self.lnf = nn.LayerNorm(d)
         self.head = nn.Linear(d, vocab, bias=False)
         self.head.weight = self.emb.weight            # tied
@@ -138,11 +142,15 @@ class SpinAttentionLM(nn.Module):
         pos = torch.arange(T, device=x.device)
         h = self.emb(x) + self.pos(pos)[None]
         ck = self.training and getattr(self, "grad_checkpoint", False)   # recompute acts in backward
-        for b in self.blocks:                                            # -> trains a big model on a small GPU
+        mode = getattr(self, "carrier_mode", "single"); states = []
+        for i, b in enumerate(self.blocks):                              # -> trains a big model on a small GPU
             h = torch.utils.checkpoint.checkpoint(b, h, use_reentrant=False) if ck else b(h)
-        h, hs = self.carrier(h, None if state is None else state[0])
+            if mode == "per_block":                                      # carrier inside every block
+                h, hs = self.carriers[i](h, None if state is None else state[i]); states.append(hs)
+        if mode == "single":                                            # one carrier after all blocks
+            h, hs = self.carrier(h, None if state is None else state[0]); states = [hs]
         lg = self.head(self.lnf(h))
-        return (lg, [hs]) if return_state else lg
+        return (lg, states) if return_state else lg
 
     @torch.no_grad()
     def generate(self, ids, n_new=64, window=256, overlap=64, temp=0.0, rep=1.3, eos=0):
