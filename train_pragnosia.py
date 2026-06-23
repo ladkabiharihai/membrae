@@ -304,15 +304,25 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                     # + save-on-best (the 1.4B ballooned only because the lr DIDN'T reset, so grown layers
                     # never trained and ppl drifted up -- fixed here).
                     def _try(gfn):
-                        c = gfn(m, 1).to(DEVICE); c.train()
-                        nb = fit_batch(c, td, cfg["bs"], cfg["bf16"])
-                        if nb < 2: del c; torch.cuda.empty_cache(); return None, 1e9, 0
-                        po = _mkopt(c.parameters(), lr * 0.1)          # GENTLE: compares shapes, doesn't destabilize
-                        for _ in range(PROBE_STEPS):
-                            po.zero_grad(); xa, ya = H.batch(td, nb)
-                            with actx: pl = F.cross_entropy(c(xa).reshape(-1, VOC), ya.reshape(-1))
-                            pl.backward(); torch.nn.utils.clip_grad_norm_(c.parameters(), 1.0); po.step()
-                        return c, H.val_ppl(c, vd, iters=15), nb
+                        # build+train a CANDIDATE beside the live model -- needs ~2x memory transiently. fit_batch
+                        # can't see the candidate's optimizer states, so it can under-estimate and OOM mid-probe.
+                        # Catch that: an OOM just means "this shape doesn't fit beside the live model+prod" -> decline
+                        # gracefully (return None) so the caller treats it as the VRAM cap instead of CRASHING the run.
+                        c = po = None
+                        try:
+                            c = gfn(m, 1).to(DEVICE); c.train()
+                            nb = fit_batch(c, td, cfg["bs"], cfg["bf16"])
+                            if nb < 2: return None, 1e9, 0
+                            po = _mkopt(c.parameters(), lr * 0.1)      # GENTLE: compares shapes, doesn't destabilize
+                            for _ in range(PROBE_STEPS):
+                                po.zero_grad(); xa, ya = H.batch(td, nb)
+                                with actx: pl = F.cross_entropy(c(xa).reshape(-1, VOC), ya.reshape(-1))
+                                pl.backward(); torch.nn.utils.clip_grad_norm_(c.parameters(), 1.0); po.step()
+                            return c, H.val_ppl(c, vd, iters=15), nb
+                        except torch.cuda.OutOfMemoryError:
+                            c = None; return None, 1e9, 0
+                        finally:
+                            po = None; torch.cuda.empty_cache()
                     pbar.write(f"  .. saturated at {G.n_params(m)/1e6:.0f}M -> GROWING (probe picks depth vs width)")
                     opts_ = [(md, *_try(gfn)) for gfn, md in ((G.grow_depth, "depth"), (G.grow_width, "width"))]
                     opts_ = [(md, c, p, nb) for md, c, p, nb in opts_ if c is not None]
@@ -333,11 +343,15 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                         def get_batch(): return pf.next() if pf else H.batch(td, bs)
                         fwd = torch.compile(m, dynamic=False) if cfg["compile"] else m
                         best = best_p; torch.save(m.state_dict(), CFG["ckpt"]); no_improve = 0; grow_count += 1
-                        lr_scale, lr_wait = 0.3, 0          # reset adaptive lr to a MODERATE level: enough to train
-                        # the new capacity, gentle enough not to blow up the function-preserving init (full peak
-                        # spikes a fresh grow ppl 23->44). It re-anneals from here; adaptive cut catches any spike.
+                        # reset adaptive lr to a gentle ABSOLUTE level (~3e-4), not a fraction of peak:
+                        # the function-preserving grow starts AT the converged model, so a big jump (0.3*peak
+                        # = 2.3e-3 when the derived peak is a hot 7.5e-3) spikes ppl 28->52 and wastes ~10 min
+                        # re-annealing. Targeting an absolute ~3e-4 trains the new capacity without the spike,
+                        # and is peak-independent (capped at 0.3*peak so a low-peak run still gets a real lr).
+                        reset_lr = min(0.3, 3e-4 / lr)
+                        lr_scale, lr_wait = reset_lr, 0
                         pbar.write(f"  ## GREW ({best_mode}) on saturation -> {len(m.blocks)}L mlp{m.mlp_mult} "
-                                   f"{G.n_params(m)/1e6:.0f}M, bs={bs} (lr reset to full, re-anneals)")
+                                   f"{G.n_params(m)/1e6:.0f}M, bs={bs} (lr -> {lr*reset_lr:.1e}, gently re-anneals)")
     pbar.close()
     print(f"[pragnosia] DONE best val ppl={best:.2f} saved {CFG['ckpt']}", flush=True)
 
