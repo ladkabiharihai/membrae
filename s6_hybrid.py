@@ -57,6 +57,22 @@ class Block(nn.Module):
         x = x + self.mlp(self.ln2(x))
         return x
 
+class SpinBlock(nn.Module):
+    """SPIN-DOMINANT block: the spin carrier IS the token mixer (causal recurrence, in place of
+    attention) + an MLP for channel mixing. This is the intended design -- spin is the core compute,
+    attention is reserved for a few 'helper' layers. The carrier here mixes strongly (not a light
+    side-channel), so cross-token information flows through the spin dynamics."""
+    def __init__(self, d, mlp_mult=4):
+        super().__init__()
+        self.carrier = SpinCarrier(d)
+        with torch.no_grad(): self.carrier.gate.fill_(2.0)        # strong mixer (sigmoid(2)=0.88), not 0.12 side-channel
+        self.ln2 = nn.LayerNorm(d)
+        self.mlp = nn.Sequential(nn.Linear(d, mlp_mult * d), nn.GELU(), nn.Linear(mlp_mult * d, d))
+    def forward(self, x):
+        x, _ = self.carrier(x)                                    # token mixing (carrier does its own ln + gated residual)
+        x = x + self.mlp(self.ln2(x))                             # channel mixing
+        return x
+
 def _lru_scan(lr, li, br, bi, h0r=None, h0i=None):
     """Hillis-Steele inclusive associative scan (log2 T steps, fully parallel) of the
     diagonal-complex recurrence  h_t = lam (.) h_{t-1} + b_t , in REAL arithmetic (re/im)
@@ -118,12 +134,16 @@ class SpinAttentionLM(nn.Module):
         self.d = d; self.mlp_mult = mlp_mult; self.n_head = n_head; self.carrier_mode = carrier
         self.emb = nn.Embedding(vocab, d)
         self.pos = nn.Embedding(4096, d)
-        self.blocks = nn.ModuleList([Block(d, n_head, mlp_mult) for _ in range(n_layer)])
+        if carrier == "spin_dominant":                                   # INTENDED design: SPIN is the token-mixer
+            self.blocks = nn.ModuleList([Block(d, n_head, mlp_mult) if i % 4 == 3 else SpinBlock(d, mlp_mult)
+                                         for i in range(n_layer)])        #   core; attention only every 4th (helper)
+        else:
+            self.blocks = nn.ModuleList([Block(d, n_head, mlp_mult) for _ in range(n_layer)])
         if carrier == "single":                                          # one carrier after all blocks (default):
             self.carrier = SpinCarrier(d)                                #   its share -> 0 as depth grows
-        elif carrier == "per_block":                                     # one carrier per block: share stays
-            self.carriers = nn.ModuleList([SpinCarrier(d) for _ in range(n_layer)])  # constant as the model scales
-        # carrier == "none": transformer-only (ablation baseline)
+        elif carrier == "per_block":                                     # one carrier per block: share stays constant
+            self.carriers = nn.ModuleList([SpinCarrier(d) for _ in range(n_layer)])
+        # carrier == "none": transformer-only baseline; "spin_dominant": spin-mixer blocks (built above)
         self.lnf = nn.LayerNorm(d)
         self.head = nn.Linear(d, vocab, bias=False)
         self.head.weight = self.emb.weight            # tied
