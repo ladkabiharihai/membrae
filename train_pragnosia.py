@@ -172,10 +172,15 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     # compute-optimal, so the model may grow only while it's below tokens/20 -- past that, extra
     # params simply can't be trained to maturity on this corpus. VRAM is the other (physical) cap.
     budget_params = td.size(0) / 20.0
+    # TOK_PER_PARAM: train each grown size to >= this many tokens/param BEFORE it may grow again.
+    # 20 = Chinchilla (compute-optimal); raise it to OVERTRAIN each rung (e.g. 120 = 6x). With no
+    # fixed size cap, the model then grows until VRAM is near-full and STOPS there (memory is the cap).
+    TPP = float(os.environ.get("TOK_PER_PARAM", "20"))
     PROBE_STEPS = int(os.environ.get("PROBE_STEPS", "60"))           # steps to test whether capacity truly helps
     val_hist = []                                                    # recent val ppls -> derive the "is it noise?" bar
-    print(f"[growth] data budget: {td.size(0)/1e6:.0f}M tokens -> max ~{budget_params/1e6:.1f}M params "
-          f"(Chinchilla tokens/20). Grow only on PROBE-CONFIRMED saturation; shape self-chosen.", flush=True)
+    print(f"[growth] {td.size(0)/1e6:.0f}M tokens | TOK_PER_PARAM={TPP:.0f} (train each rung this thoroughly "
+          f"before growing) | NO fixed size cap -> grow until VRAM near-full then stop. "
+          f"Grow only on PROBE-CONFIRMED saturation.", flush=True)
     # DERIVE the peak LR from the model's OWN loss-vs-lr curve (Smith range test) instead of a
     # hardcoded seed: sweep lr exponentially over a short probe, pick the steepest-descent point.
     # lo/hi/n are just the search grid (structural); the chosen lr is the model+data's answer.
@@ -270,7 +275,10 @@ def main(steps, lr, resume, override_bs, grow_enabled):
             # only if the extra capacity DEMONSTRABLY lowers val loss past the val noise. The
             # shape (depth vs width) is whichever probe helps more. Caps are the DATA budget
             # (Chinchilla tokens/20) and VRAM -- both derived, none hardcoded.
-            if grow_enabled and no_improve >= grow_patience:
+            if grow_enabled and no_improve >= grow_patience and toks < TPP * H.n_params(m):
+                pbar.write(f"  .. {H.n_params(m)/1e6:.0f}M plateaued at {toks/H.n_params(m):.0f} tok/param "
+                           f"(< {TPP:.0f} target) -- training this size more before considering growth")
+            elif grow_enabled and no_improve >= grow_patience:       # TPP-trained AND plateaued -> consider growth
                 import grow as G
                 free = (torch.cuda.mem_get_info()[0] / 2**30) if DEVICE == "cuda" else 99
                 if G.n_params(m) >= budget_params:                    # DATA budget reached (derived)
@@ -281,37 +289,35 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                     grow_enabled = False
                     pbar.write(f"  ## VRAM cap ({free:.1f}GB free) -- staying at {G.n_params(m)/1e6:.0f}M")
                 else:
-                    # "meaningful" bar = the val noise itself (derived): a probe must beat the
-                    # plateau by MORE than the plateau has been wobbling.
-                    noise = float(np.std(val_hist[-4:]) / max(1e-6, np.mean(val_hist[-4:]))) if len(val_hist) >= 3 else 0.01
-                    bar = max(0.01, 2 * noise)
-                    def _probe(cand):
-                        cand = cand.to(DEVICE); cand.train()
-                        nb = fit_batch(cand, td, cfg["bs"], cfg["bf16"])
-                        if nb < 1: del cand; torch.cuda.empty_cache(); return None, 1e9, 0
-                        po = _mkopt(cand.parameters(), clr)            # probe at the current lr
+                    # SATURATED: TPP-trained AND plateaued, with VRAM/data headroom. A CONVERGED size
+                    # cannot be beaten by a short probe -- the benefit of extra capacity needs THOUSANDS of
+                    # steps, not 60 -- so saturation ITSELF is the grow signal (the old "must beat X% in 60
+                    # steps" probe could never confirm, and got stuck). A short GENTLE probe now only PICKS
+                    # the shape (depth vs width); we adopt the winner and the LR-RESET trains it up. Over-
+                    # growth is held by the TPP floor + lr reset (each rung really trains) + data/VRAM caps
+                    # + save-on-best (the 1.4B ballooned only because the lr DIDN'T reset, so grown layers
+                    # never trained and ppl drifted up -- fixed here).
+                    def _try(gfn):
+                        c = gfn(m, 1).to(DEVICE); c.train()
+                        nb = fit_batch(c, td, cfg["bs"], cfg["bf16"])
+                        if nb < 2: del c; torch.cuda.empty_cache(); return None, 1e9, 0
+                        po = _mkopt(c.parameters(), lr * 0.1)          # GENTLE: compares shapes, doesn't destabilize
                         for _ in range(PROBE_STEPS):
                             po.zero_grad(); xa, ya = H.batch(td, nb)
-                            with actx: pl = F.cross_entropy(cand(xa).reshape(-1, VOC), ya.reshape(-1))
-                            pl.backward(); torch.nn.utils.clip_grad_norm_(cand.parameters(), 1.0); po.step()
-                        return cand, H.val_ppl(cand, vd, iters=15), nb
-                    pbar.write(f"  .. plateau at {G.n_params(m)/1e6:.1f}M -> probing saturation "
-                               f"(depth vs width, {PROBE_STEPS} steps each; must beat {bar*100:.1f}%)")
-                    best_c, best_p, best_mode, best_nb = None, 1e9, None, 0
-                    for gfn, md in ((G.grow_depth, "depth"), (G.grow_width, "width")):
-                        c, p, nb = _probe(gfn(m, 1))
-                        if c is None: continue
-                        if p < best_p:
-                            if best_c is not None: del best_c
-                            best_c, best_p, best_mode, best_nb = c, p, md, nb
-                        else:
-                            del c
-                        torch.cuda.empty_cache()
-                    helps = (ppl - best_p) / max(1e-6, ppl) if best_c is not None else -1
-                    if best_c is None:
+                            with actx: pl = F.cross_entropy(c(xa).reshape(-1, VOC), ya.reshape(-1))
+                            pl.backward(); torch.nn.utils.clip_grad_norm_(c.parameters(), 1.0); po.step()
+                        return c, H.val_ppl(c, vd, iters=15), nb
+                    pbar.write(f"  .. saturated at {G.n_params(m)/1e6:.0f}M -> GROWING (probe picks depth vs width)")
+                    opts_ = [(md, *_try(gfn)) for gfn, md in ((G.grow_depth, "depth"), (G.grow_width, "width"))]
+                    opts_ = [(md, c, p, nb) for md, c, p, nb in opts_ if c is not None]
+                    if not opts_:
                         grow_enabled = False
-                        pbar.write(f"  ## neither growth fits VRAM -- staying at {G.n_params(m)/1e6:.0f}M")
-                    elif helps > bar:                                 # CONFIRMED saturation -> commit the winner
+                        pbar.write(f"  ## VRAM cap -- neither shape fits; staying at {G.n_params(m)/1e6:.0f}M")
+                    else:
+                        best_mode, best_c, best_p, best_nb = min(opts_, key=lambda t: t[2])
+                        for md, c, p, nb in opts_:
+                            if c is not best_c: del c
+                        torch.cuda.empty_cache()
                         m = best_c; CFG["layers"] = len(m.blocks); CFG["mlp_mult"] = m.mlp_mult
                         json.dump(CFG, open("pragnosia.json", "w"), indent=2)
                         bs, accum = best_nb, max(1, 64 // best_nb)
@@ -321,14 +327,11 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                         def get_batch(): return pf.next() if pf else H.batch(td, bs)
                         fwd = torch.compile(m, dynamic=False) if cfg["compile"] else m
                         best = best_p; torch.save(m.state_dict(), CFG["ckpt"]); no_improve = 0; grow_count += 1
-                        pbar.write(f"  ## GREW ({best_mode}) -- saturation CONFIRMED: ppl {ppl:.2f}->{best_p:.2f} "
-                                   f"({helps*100:.1f}% > {bar*100:.1f}% from +capacity) -> "
-                                   f"{len(m.blocks)}L mlp{m.mlp_mult} {G.n_params(m)/1e6:.1f}M, bs={bs}")
-                    else:                                             # plateau but capacity DOESN'T help -> stuck, not full
-                        del best_c; torch.cuda.empty_cache(); no_improve = 0
-                        lr_scale *= 0.7; lr_wait = 0
-                        pbar.write(f"  ## NOT saturated (capacity helps only {helps*100:.1f}% < {bar*100:.1f}%) "
-                                   f"-- NOT growing; easing lr to {lr*lr_scale:.2e} (it's stuck, not full)")
+                        lr_scale, lr_wait = 0.3, 0          # reset adaptive lr to a MODERATE level: enough to train
+                        # the new capacity, gentle enough not to blow up the function-preserving init (full peak
+                        # spikes a fresh grow ppl 23->44). It re-anneals from here; adaptive cut catches any spike.
+                        pbar.write(f"  ## GREW ({best_mode}) on saturation -> {len(m.blocks)}L mlp{m.mlp_mult} "
+                                   f"{G.n_params(m)/1e6:.0f}M, bs={bs} (lr reset to full, re-anneals)")
     pbar.close()
     print(f"[pragnosia] DONE best val ppl={best:.2f} saved {CFG['ckpt']}", flush=True)
 
