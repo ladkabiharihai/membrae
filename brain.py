@@ -56,7 +56,8 @@ class Brain(nn.Module):
         self.learn = learn
         self.cfg = CFG
         self.lm = H.SpinAttentionLM(CFG["vocab"], CFG["d"], CFG["heads"], CFG["layers"],
-                                    mlp_mult=CFG.get("mlp_mult", 4))         # build on CPU
+                                    mlp_mult=CFG.get("mlp_mult", 4),
+                                    carrier=CFG.get("carrier", "single"))    # build on CPU (carrier mode from config)
         ckpt = lm_ckpt or CFG["ckpt"]
         if os.path.exists(ckpt):                                            # load weights on CPU then move
             self.lm.load_state_dict(torch.load(ckpt, map_location="cpu", weights_only=True))
