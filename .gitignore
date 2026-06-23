@@ -34,3 +34,4 @@ physics_conversation_log.*
 conversation_log.json
 bench_result.json
 *_probe_ckpt.pt
+*_state.json
