@@ -10,7 +10,7 @@ Faculties covered:
   - abstention: answers the knowable, says-IDK the unknowable
   - continual learning: teach a new fact + recall it (on the in-memory copy; never persisted)
 """
-import json, sys, math, torch
+import json, sys, math, os, torch
 import torch.nn.functional as F
 torch.set_num_threads(16)
 import s6_hybrid as H
