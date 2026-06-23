@@ -200,7 +200,10 @@ def main(steps, lr, resume, override_bs, grow_enabled):
         m.load_state_dict(st)                                          # restore: the sweep was only a probe
         if len(losses) < 8: return lrs[len(losses) // 2]
         sm = np.convolve(np.array(losses), np.ones(5) / 5, mode="valid")
-        return float(lrs[int(np.argmin(np.diff(sm)))])                 # lr at steepest descent (no magic factor)
+        return float(lrs[int(np.argmin(np.diff(sm)))]) / 10.0          # steepest-descent / 10: the steepest point is
+                                                                       # the INSTABILITY edge (training there degrades --
+                                                                       # observed ppl 225->310 at raw 0.075); Smith's
+                                                                       # margin puts the peak safely below it.
     if lr <= 0:
         lr = find_lr()
         print(f"[lr] DERIVED peak lr = {lr:.2e} (steepest descent of the model's own lr sweep -- not a hardcoded seed)", flush=True)
