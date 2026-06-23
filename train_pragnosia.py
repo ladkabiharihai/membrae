@@ -163,7 +163,9 @@ def main(steps, lr, resume, override_bs, grow_enabled):
         try:
             st = json.load(open(state_path)); start_it = int(st.get("step", 0)) + 1; step_base = start_it - 1
             lr_scale = float(st.get("lr_scale", lr_scale)); lr_wait = int(st.get("lr_wait", lr_wait))
-            print(f"resumed STATE: continuing at step {start_it} (lr_scale {lr_scale:.3f}) -- not restarting from 0", flush=True)
+            if "lr" in st and lr <= 0: lr = float(st["lr"])    # restore the DERIVED peak lr (find_lr is unreliable
+            print(f"resumed STATE: continuing at step {start_it} (lr_scale {lr_scale:.3f}, "  # on trained weights -> don't re-run it)
+                  f"peak_lr {lr:.2e}) -- not restarting from 0", flush=True)
         except Exception as e: print("state restore skipped:", str(e)[:50], flush=True)
     t0, run_loss = time.time(), None
     no_improve, grow_patience, grow_count = 0, int(os.environ.get("GROW_PATIENCE", "5")), 0   # grow-as-you-train
@@ -255,7 +257,7 @@ def main(steps, lr, resume, override_bs, grow_enabled):
             pbar.write(f"  >> it={it:6d}  VAL_PPL={ppl:.2f}  (best {min(best,ppl):.2f})  "
                        f"loss={run_loss:.3f}  ({(time.time()-t0)/3600:.2f}h){star}")
             torch.save(m.state_dict(), CFG["ckpt"])      # save LATEST every val (resumable)
-            json.dump({"step": it, "lr_scale": lr_scale, "lr_wait": lr_wait, "best": best},
+            json.dump({"step": it, "lr_scale": lr_scale, "lr_wait": lr_wait, "best": best, "lr": lr},
                       open(state_path, "w"))             # sidecar -> resume CONTINUES from here, not 0
             if ppl < best:                                # ALSO protect the BEST: refinement runs can
                 best = ppl; no_improve = 0; lr_wait = 0   # drift worse at too-high lr, and latest-only
