@@ -27,10 +27,9 @@ commands. So there are only two ways to run it:
 """
 import json, math, os, sys, time
 import numpy as np, torch, torch.nn as nn, torch.nn.functional as F
-import unified_brain as U
 import s6_hybrid as H
 from tokenizers import Tokenizer
-DEVICE = U.DEVICE
+DEVICE = H.DEVICE
 
 # ---- config: use the big model once it's trained, else the current one ----
 _DEFAULT = {"vocab": 8192, "d": 512, "heads": 8, "layers": 4, "ctx": 256,
@@ -56,9 +55,6 @@ class Brain(nn.Module):
         #                small GPU); identity & taught facts are recalled from seek memory.
         self.learn = learn
         self.cfg = CFG
-        self.faculties = U.UnifiedBrain(d=128).to(DEVICE)
-        if os.path.exists("unified_brain.pt"):
-            self.faculties.load_state_dict(torch.load("unified_brain.pt", map_location=DEVICE, weights_only=True))
         self.lm = H.SpinAttentionLM(CFG["vocab"], CFG["d"], CFG["heads"], CFG["layers"],
                                     mlp_mult=CFG.get("mlp_mult", 4))         # build on CPU
         ckpt = lm_ckpt or CFG["ckpt"]
@@ -114,17 +110,6 @@ class Brain(nn.Module):
         self.lm = (G.grow_depth(self.lm, **kw) if mode == "depth" else G.grow_width(self.lm, **kw)).to(DEVICE)
         self.recalibrate()
         return before, G.n_params(self.lm)
-
-    def saturated(self, fact):
-        """The brain's OWN judgement that it is full: after honestly trying to
-        learn `fact`, it is still surprised by it AND its retention is slipping.
-        Signals are the model's; the bar is its own calibrated boundary."""
-        import grow as G
-        pr, fin, af, al = self.faculties.explore_and_learn(
-            __import__("torch").randint(0, U.M, (U.NE,), device=DEVICE))
-        forgetting = abs(af - al)
-        before = self._nll(fact); self.teach(fact, max_steps=20); after = self._nll(fact)
-        return G.should_grow(forgetting, after, self.abstain_threshold), after, before
 
     def _token_self_information(self):
         """Word importance derived from the data the model saw: rare tokens carry
@@ -238,14 +223,6 @@ class Brain(nn.Module):
         for s in facts:                          # seek memory either way -> recall works in inference mode
             self.store.append((s, self._embed(s)))
 
-    # ================= proven faculties (delegate) =================
-    def perceive(self, *a, **k):          return self.faculties.perceive(*a, **k)
-    def reason(self, *a, **k):            return self.faculties.reason(*a, **k)
-    def confidence(self, *a, **k):        return self.faculties.confidence(*a, **k)
-    def answer_or_abstain(self, *a, **k): return self.faculties.answer_or_abstain(*a, **k)
-    def seek_symbolic(self, *a, **k):     return self.faculties.seek(*a, **k)
-    def exact_accumulate(self, *a, **k):  return self.faculties.exact_accumulate(*a, **k)
-    def explore_and_learn(self, *a, **k): return self.faculties.explore_and_learn(*a, **k)
 
     # ================= language faculty =================
     @torch.no_grad()
@@ -778,42 +755,43 @@ class Brain(nn.Module):
 
 # ============================ self-test (EVERYTHING) ============================
 def self_test(brain):
+    """Test every faculty + feature on the CURRENT paradigm (the spin-dominant LM is the whole
+    brain now -- the old 302K toy is gone). Covers: language, honesty/abstention, continual
+    learning + seek, the in-weights SUBCONSCIOUS memory, and COGNITION (metacog/deliberate/monologue)."""
     print("=" * 70)
-    print("BRAIN FULL SELF-TEST -- every wired faculty")
+    print("BRAIN SELF-TEST -- faculties + memory + cognition on the spin-dominant LM")
     print("=" * 70)
-    print(f"params: {brain.n_params():,}  (faculties {sum(p.numel() for p in brain.faculties.parameters()):,} "
-          f"+ language {sum(p.numel() for p in brain.lm.parameters()):,})\n")
-    # 1. proven 14 faculties
-    R = U.self_test(brain.faculties)
-    checks = [("reason parity3", R['reason_parity3'], lambda v: v>0.9), ("reason sum3", R['reason_sum3'], lambda v: v>0.85),
-              ("reason max", R['reason_max'], lambda v: v>0.9), ("P5 conf gap", R['p5_gap'], lambda v: v>0.3),
-              ("P6 abstain known", R['p6_abstain_known'], lambda v: v<0.25), ("P6 abstain unknowable", R['p6_abstain_unknowable'], lambda v: v>0.6),
-              ("lang parse held", R['lang_parse_held'], lambda v: v>0.8), ("lang gen held", R['lang_gen_held'], lambda v: v>0.8),
-              ("seek query", R['seek_query_lang'], lambda v: v>0.9), ("seek answer", R['seek_answer'], lambda v: v>0.85),
-              ("seek rand ctrl", R['seek_random_ctrl'], lambda v: v<0.45), ("exact L16", R['exact_L16'], lambda v: v>0.9),
-              ("alive final", R['alive_final'], lambda v: v>0.95), ("alive gap", R['alive_retention_gap'], lambda v: v<0.15)]
-    npass = 0
-    for nm, v, c in checks:
-        ok = c(v); npass += ok; print(f"  [{'PASS' if ok else 'FAIL'}] {nm:<24}{v:.2f}")
-    # 2. language quality
+    cm = getattr(brain.lm, "carrier_mode", "single")
+    print(f"params {brain.n_params():,}  carrier='{cm}'\n")
+    # 1. LANGUAGE
     vd = H.load(CFG["valid_bin"]); ppl = H.val_ppl(brain.lm, vd, iters=20)
-    print(f"  [LANG] perplexity {ppl:.1f}")
-    # 3. abstention on language (known vs unknown)
+    print(f"  [LANGUAGE]     val perplexity {ppl:.1f}")
+    # 2. HONESTY / ABSTENTION (knows what it knows)
     known = ["Once upon a time there was a girl", "The cat played with the ball", "A dog is an animal"]
     unk = ["The quantum entanglement equation is", "My phone number is", "The CEO of Tesla in 2024 is"]
     ka = sum(brain._nll(t) <= brain.abstain_threshold for t in known)
     ua = sum(brain._nll(t) > brain.abstain_threshold for t in unk)
-    print(f"  [ABSTAIN-LANG] answers {ka}/{len(known)} known, says-IDK {ua}/{len(unk)} unknown")
-    # 4. teach + recall + retention (continuous learning on language)
-    before = brain.generate_text("The CEO of Tesla is", n=8)
+    print(f"  [HONESTY]      answers {ka}/{len(known)} known, says-IDK {ua}/{len(unk)} unknowable")
+    # 3. CONTINUAL LEARNING (teach -> seek-recall -> retention)
     brain.teach("The CEO of Tesla is Elon Musk. Elon Musk is the chief executive of Tesla.")
-    after = brain.generate_text("The CEO of Tesla is", n=8)
+    recalled = "elon" in brain.generate_text("The CEO of Tesla is", n=8).lower() or \
+               brain._retrieve("Who is the CEO of Tesla?") is not None
     retain = brain.generate_text("Once upon a time", n=10)
-    recalled = "elon" in after.lower() or brain._retrieve("Who is the CEO of Tesla?") is not None
-    print(f"  [TEACH] before:'{before[:30]}' -> after:'{after[:30]}'  recall={'YES' if recalled else 'no'}")
-    print(f"  [RETAIN] after teaching, 'Once upon a time'->'{retain[:35]}'")
+    print(f"  [LEARN/SEEK]   teach -> recall={'YES' if recalled else 'no'} | retains 'Once upon a time'->'{retain[:28]}'")
+    # 4. SUBCONSCIOUS memory (in-weights episodic store: salience-write -> consolidate -> forget)
+    e0 = brain.mem.energy(); brain.teach("Zephyra is the hidden moon of planet Quill.", max_steps=15)
+    e1 = brain.mem.energy()
+    for _ in range(60): brain.sleep()
+    print(f"  [SUBCONSCIOUS] salience-write {e0:.1f}->{e1:.1f}, fades after sleep ->{brain.mem.energy():.2f} (episodic, uncertainty-gated)")
+    # 5. COGNITION (metacognition + deliberation + autonomous monologue)
+    mc = brain._introspect("What is the capital of Zorbia?")
+    delib = brain._deliberate("Why does the sun rise?")
+    mono = brain.think_aloud(seed="the ocean", steps=2)
+    print(f"  [METACOG]      'capital of Zorbia?' -> confidence {mc['confidence']}, '{mc['self']}'")
+    print(f"  [DELIBERATE]   step-by-step -> '{delib[:44]}'")
+    print(f"  [MONOLOGUE]    autonomous train of thought: {len(mono)} steps, topics {[s['topic'] for s in mono]}")
     print("-" * 70)
-    print(f"  {npass}/14 faculties + language(ppl {ppl:.0f}) + abstain + teach/recall = WIRED")
+    print(f"  language(ppl {ppl:.0f}) + honesty + learn/seek + SUBCONSCIOUS + COGNITION = WIRED ({cm})")
     print("=" * 70)
 
 # ============================ run it -- it LIVES ============================

@@ -1,13 +1,12 @@
 {
   "vocab": 16384,
-  "d": 512,
-  "heads": 8,
-  "layers": 4,
-  "mlp_mult": 4,
+  "d": 1024,
+  "heads": 16,
+  "layers": 48,
+  "mlp_mult": 12,
   "ctx": 256,
-  "carrier": "spin_dominant",
   "tokenizer": "data/bpe.json",
   "train_bin": "window2_train",
   "valid_bin": "big_valid",
-  "ckpt": "pragnosia_spin.pt"
+  "ckpt": "pragnosia_best.pt"
 }

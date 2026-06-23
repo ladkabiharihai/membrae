@@ -14,19 +14,18 @@ import json, sys, math, torch
 import torch.nn.functional as F
 torch.set_num_threads(16)
 import s6_hybrid as H
-import unified_brain as U
 from tokenizers import Tokenizer
 
 CK = sys.argv[1] if len(sys.argv) > 1 else "pragnosia.pt"
 cfg = json.load(open("pragnosia.json")); H.VOC = cfg["vocab"]; H.L = cfg["ctx"]
-U.DEVICE = "cpu"; H.DEVICE = "cpu"
+H.DEVICE = "cpu"
 tok = Tokenizer.from_file(cfg["tokenizer"]); ctx = cfg["ctx"]
 
 # ---- load the LM from the snapshot; infer the (possibly grown) arch from the weights ----
 sd = torch.load(CK, map_location="cpu", weights_only=True)
 nl = max(int(k.split(".")[1]) for k in sd if k.startswith("blocks.") and k.split(".")[1].isdigit()) + 1
 mm = next(sd[k].shape[0] for k in sd if k.endswith("mlp.0.weight")) // cfg["d"]
-lm = H.SpinAttentionLM(cfg["vocab"], cfg["d"], cfg["heads"], nl, mlp_mult=mm).eval()
+lm = H.SpinAttentionLM(cfg["vocab"], cfg["d"], cfg["heads"], nl, mlp_mult=mm, carrier=cfg.get("carrier", "single")).eval()
 lm.load_state_dict(sd)
 np_ = sum(p.numel() for p in lm.parameters())
 print("=" * 68)
@@ -44,28 +43,8 @@ def gen(p, n=12, chat=False):
         if not chat and "\n" in t: return t.split("\n")[0].strip()
     return tok.decode(out).strip()
 
-# ===================== 1. THE 14 PROVEN FACULTIES =====================
-print("\n[1] PROVEN FACULTIES (unified_brain.pt)")
-fac = U.UnifiedBrain(d=128)
-import os
-if os.path.exists("unified_brain.pt"):
-    fac.load_state_dict(torch.load("unified_brain.pt", map_location="cpu", weights_only=True))
-fac.eval()
-try:
-    R = U.self_test(fac)
-    checks = [("reason parity3", R['reason_parity3'], lambda v: v > 0.9), ("reason sum3", R['reason_sum3'], lambda v: v > 0.85),
-              ("reason max", R['reason_max'], lambda v: v > 0.9), ("conf gap", R['p5_gap'], lambda v: v > 0.3),
-              ("abstain known", R['p6_abstain_known'], lambda v: v < 0.25), ("abstain unknowable", R['p6_abstain_unknowable'], lambda v: v > 0.6),
-              ("lang parse", R['lang_parse_held'], lambda v: v > 0.8), ("lang gen", R['lang_gen_held'], lambda v: v > 0.8),
-              ("seek query", R['seek_query_lang'], lambda v: v > 0.9), ("seek answer", R['seek_answer'], lambda v: v > 0.85),
-              ("seek rand ctrl", R['seek_random_ctrl'], lambda v: v < 0.45), ("exact L16", R['exact_L16'], lambda v: v > 0.9),
-              ("alive final", R['alive_final'], lambda v: v > 0.95), ("alive gap", R['alive_retention_gap'], lambda v: v < 0.15)]
-    npass = 0
-    for nm, v, c in checks:
-        ok = c(v); npass += ok; print(f"    [{'PASS' if ok else 'FAIL'}] {nm:<20}{v:.2f}")
-    print(f"    => {npass}/14 faculties wired")
-except Exception as e:
-    print(f"    (faculties test skipped: {str(e)[:60]})")
+# (The old 302K toy faculties are gone -- the spin-dominant LM is the whole brain now. This file
+#  tests the LM directly; `python3 brain.py test` adds the subconscious + cognition checks.)
 
 # ===================== 2. LANGUAGE: perplexity =====================
 print("\n[2] LANGUAGE perplexity (held-out valid)")
