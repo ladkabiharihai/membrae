@@ -53,10 +53,15 @@ Carrier modes (`none`/`single`/`per_block`/`spin_dominant`) are wired through `p
 
 **CAVEAT (be honest):** small-scale / short-budget / single-seed. **This MUST be replicated at scale.**
 
+**Confirmed in production:** the laptop spin-dominant run **grew itself 24M (4L) → 27.3M (5L)** (probe-confirmed
+saturation, function-preserving), then capped at the ~25M data budget — self-governing growth works on spin blocks.
+
 **Speed:** spin-dominant is *slower* at ctx=256 (the scan does more than attention on short sequences; it
 can't be in-place-optimized — that breaks autograd). Its advantage is **long context** (O(T) vs attention
-O(T²)) and **inference** (recurrent → O(1)/token, no KV cache). `torch.compile` fuses the scan on the H100
-(reliable there; it's buggy on the laptop 4060 → `NOCOMPILE=1` there only).
+O(T²)) and **inference** (recurrent → O(1)/token, no KV cache). `torch.compile` **fuses the scan → ~2×**
+(measured **49K → ~100K tok/s at bs=24 on the laptop RTX 4060**). The old compile asserts on the 4060 were
+the **Prefetcher CUDA race (now fixed)**, not compile — so compile is ON by default; use `NOCOMPILE=1` only
+if it misbehaves.
 
 ---
 
@@ -67,7 +72,9 @@ Run, on the new CoT-enriched corpus (`window2_train`), at ~200M–1B, full budge
 If spin-dominant holds its ~15–21% edge at scale, that is a real, publishable hybrid result. Set the
 config's `"carrier"` field; the trainer + growth honour it. Use `run_fast.py` (compile on; works on H100).
 Watch with `bash ops.sh status`. **A high derived LR can destabilise a fresh run** — `find_lr` now applies
-Smith's ÷10 margin (`--lr 0` derives it); if a run's ppl *rises* after warmup, the LR was still too hot.
+Smith's ÷10 margin (`--lr 0` derives it); if a run's ppl *rises* after warmup, the LR was still too hot. On
+**`--resume` the peak LR is RESTORED from the sidecar** (find_lr is unreliable on trained weights — it once
+re-derived ~1e-6 and trained frozen), so resume continues at the right LR, not re-derived.
 
 ---
 
@@ -133,9 +140,12 @@ the checkpoint or rebuild with `prepare_scale.py`. Sanity: a slice decodes to cl
 ---
 
 ## 7. State as of this handover
-A **spin-dominant from-scratch run** is training (laptop, `pragnosia_spin.pt`, self-governing growth,
-derived LR ~7.5e-3, ppl dropping fast). The 1.4B (`pragnosia_best.pt`, attention-dominant, the wrong build)
-is the reference. The decisive experiment — spin-dominant vs transformer-only at 200M–1B on the CoT corpus —
-**is the H100's job (§3).** Deferred no-hardcode items (need teach-regression tests): teach
+A **spin-dominant from-scratch run** trained on the laptop (`pragnosia_spin.pt`): it **self-grew 24M(4L)→27.3M(5L)**,
+reached **~it 53,500, val ppl ~40**, at **~85K tok/s** (compile, bs=24). Probe of the 27.3M: **fluent** generation,
+**weak** faculties (it's a 27M model — can't store world facts), **faint emergence** (solved a theory-of-mind
+false-belief + an in-context binding case). The laptop now holds a **fresh ~1 GB strided CoT-inclusive subsample**
+(500M tokens) pulled from the H100's 330 GB corpus. The 1.4B (`pragnosia_best.pt`, attention-dominant, the wrong
+build) is the reference. The decisive experiment — spin-dominant vs transformer-only at 200M–1B on the full CoT
+corpus — **is the H100's job (§3).** Deferred no-hardcode items (need teach-regression tests): teach
 `plasticity`/`target` clamps, trainer `warm`/`target_eff`. Key memory for future Claude sessions lives in
 the user's `memory/` dir (`spinning-brain-project.md`).

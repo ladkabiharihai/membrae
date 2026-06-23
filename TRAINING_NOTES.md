@@ -24,8 +24,10 @@ Pretraining checkpoint: from-scratch 228M, **val PPL 20.76** (~5B digit-tokenize
 **Current best: `pragnosia_best.pt` — 1.4B params (48L), val PPL 17.35** after the Jun 19–21
 freed-GPU growth+refine run (this is the *attention-dominant* drift instance — see HEADLINE above).
 `pragnosia.json.1p4B` tracks that arch (d=1024, layers=48, mlp_mult=12, ctx=256, vocab 16384).
-The live `pragnosia.json` now points at the **`spin_dominant`** ablation arch (d=512, 4L, mlp4,
+The live `pragnosia.json` now points at the **`spin_dominant`** arch (d=512, mlp4,
 `carrier="spin_dominant"`, ckpt `pragnosia_spin.pt`) — the intended design under validation.
+It was born at 4 layers and **self-grew to 5 layers** in production (24M→27.3M), then capped
+at the data budget (no hardcoded size cap).
 
 ## Jun 19–21 freed-GPU GROWTH + REFINE run (the 276M → 1.4B story)
 After post-training (228M → 276M beside prod), prod services were stopped for a 3-day window
@@ -46,15 +48,19 @@ the original cosine schedule held lr near peak (2e-4), over-writing faster than 
   grow-on-saturation; `--lr` is just the initial seed, so a too-high start self-corrects.
 - **Save-on-BEST** (`pragnosia_best.pt`): lowest-ppl weights are preserved alongside the resumable
   `latest` — refinement can no longer silently overwrite the good model.
-- **Background-thread prefetcher** (`s6_hybrid.Prefetcher`, `PREFETCH=1`): overlaps the memmap
-  gather + pinned H2D copy with compute (GPU util 90% → 99%; the model is compute/bandwidth-bound
-  so wall-clock gain is small, but utilization is clean).
+- **Background-thread prefetcher** (`s6_hybrid.Prefetcher`): overlaps the memmap
+  gather + pinned H2D copy with compute (GPU util 90% → 99%). The prefetcher CUDA race
+  that used to trip `torch.compile` device-side asserts is now fixed, so **compile can stay
+  ON** (it fuses the spin scan for ~2× throughput).
 
 **Refine run result:** with the adaptive lr the drift fully reversed and the model **improved past
 its old peak → val PPL 17.35** (best ever; was 20.5 → 19.65 → **17.35**).
 
-### Final test results (best 1.4B model, `pragnosia_best.pt`, ppl 17.35)
-- **Faculties: 14/14 wired** + teach/recall (continual learning) ✓
+### Final test results (best 1.4B reference model, `pragnosia_best.pt`, ppl 17.35)
+*(historical, attention-dominant drift instance — measured at the time on the old self-test;
+the old "14 proven faculties / unified_brain" self-test has since been removed. The current
+self-test is `python3 brain.py test` on the spin-dominant model — see "Run / test" below.)*
+- **Faculties wired** + teach/recall (continual learning) ✓
 - **Arithmetic: 10/10** — `23+45=68 · 100−37=63 · 12×12=144 · 250+250=500 · 9×7=63 · 144/12=12 · 1000−1=999`
 - **Knowledge ~7/8** — Paris, Tokyo, Shakespeare, **Jupiter**, H2O, Everest, Portuguese (miss: continents)
 - **Human-cognition emergence 9/20 (45%)** — **Theory-of-Mind 2/2** (Sally-Anne false belief),
@@ -69,7 +75,10 @@ its old peak → val PPL 17.35** (best ever; was 20.5 → 19.65 → **17.35**).
 Built two purpose-proportioned corpora, each containing ALL requested data types:
 - **window1** (~20B, beside-prod): weighted to new skills — instruction 12% · math 12% ·
   **code 14% · science 14% · reasoning 16%** · knowledge 32%.
-- **window2** (~160B, freed-GPU growth): knowledge-heavy fuel — 64% knowledge, every skill at scale.
+- **window2** (freed-GPU growth): knowledge-heavy fuel — 64% knowledge, every skill at scale.
+  The live CoT-enriched build is **`/mnt/kv_cache/pragnosia_data/window2_train.bin` — 330 GB /
+  176.6B tokens** on the H100. The laptop carries a ~1 GB strided CoT-inclusive subsample
+  (~500M tokens) for replay (see RUNBOOK STEP 1).
 - **Science** (physics/astro/particle/cosmology/bio/chem): `common-pile/arxiv_papers_filtered`
   full papers (bulk) + `camel-ai` physics/chem/bio + arXiv abstracts. **Code:** glaive-code-assistant
   + Magicoder + evol-codealpaca (the-stack/starcoder are gated; codeparrot dies on bad parquet rows).
@@ -109,7 +118,8 @@ replication before it's proven at 1B+; transformers sometimes close SSM-style ga
 **Speed framing (not a free lunch at short context):** spin-dominant is **not** faster than
 attention on 256 tokens — the scan does more work there. Its advantage is *structural*: long
 context (spin `O(T·d)` vs attention `O(T²·d)`) and inference (the carrier is recurrent → `O(1)`/token,
-constant memory, **no KV-cache growth**). `torch.compile` fuses the scan on the H100.
+constant memory, **no KV-cache growth**). `torch.compile` fuses the spin scan — measured
+**49K → ~100K tok/s at bs=24 on an RTX 4060 (~2×)**; bf16 inference.
 
 ## The model — PARALLEL spin
 SpinAttentionLM (`s6_hybrid.py`): d=1024, 16 heads, ctx=256, vocab 16384 (digit-aware BPE,
@@ -126,7 +136,7 @@ log-depth **parallel scan** instead of the original 256-step sequential tanh loo
 - **~2× faster training** (168K vs 109K tok/s beside prod); the 228M model trained faster
   than the old 176M and reached the **same perplexity** (20.76 vs 20.47).
 - **Dynamics directionally preserved**: brain-swap control holds (`own < swapped < random`);
-  `brain.py test` = **14/14 + WIRED**. But honestly, the carried-state signal is small and
+  `brain.py test` reports **WIRED**. But honestly, the carried-state signal is small and
   *shrinks as a fraction of the loss as the model grows* (0.016 at 276M → **0.00086 = 0.028% of
   the loss at 1.4B**), because the single fixed carrier is diluted by depth. The fix is to make
   spin the core mixer (`spin_dominant`), not to keep it as a side-channel.
@@ -173,24 +183,31 @@ chain-of-thought prose is often confabulated. The 176M size is the remaining cei
 
 ## Run / test
 ```
-python3 brain.py test            # full self-test: every faculty + language
+python3 brain.py test            # full self-test on the spin-dominant model:
+                                 #   language + honesty + learn/seek + SUBCONSCIOUS memory
+                                 #   + COGNITION (metacognition / deliberation / monologue)
 python3 brain.py "5 + 7 ="       # one-shot: say anything to it, see what it does
 python3 brain.py                 # it LIVES: talk to it (answers, learns, wonders, looks up, grows)
+
+python3 faculty_test.py pragnosia_spin.pt   # CPU-only / read-only LM capability battery
+                                            # (builds with carrier=cfg['carrier'])
 ```
+The old "14 proven faculties / unified_brain" self-test has been removed (along with
+`unified_brain.py`/`unified_brain.pt`). The self-test now runs against the spin-dominant LM.
 
 ## ⚠️ Ship the data bins with the checkpoint (continual learning depends on it)
-`pragnosia.pt` alone is **not enough** to run `brain.py` correctly — you also need
-`data/big_train.bin`, `data/big_valid.bin`, and `data/bpe.json`, all from THIS run:
-- `big_train.bin` = replay source for `teach()`. Continual learning interleaves
-  replay from it so new facts don't erase old skills. Replaying the **wrong/dirty**
-  corpus (e.g. one rebuilt locally with HTML markup) corrupts the model on every
-  teach — including the startup identity install — so `brain.py` looks broken while
-  `brain.py probe` (which never teaches) stays fine. It must be the **same corpus, same
-  tokenizer** as training.
+The checkpoint alone is **not enough** to run `brain.py` correctly — you also need the
+train bin, `data/big_valid.bin`, and `data/bpe.json`, all from THIS run:
+- The train bin (`data/window2_train.bin` locally, or `window2_train` per the config's
+  `train_bin`) = replay source for `teach()`. Continual learning interleaves replay from
+  it so new facts don't erase old skills. Replaying the **wrong/dirty** corpus (e.g. one
+  rebuilt locally with HTML markup) corrupts the model on every teach — including the
+  startup identity install. It must be the **same corpus, same tokenizer** as training.
+  (The H100 source is `/mnt/kv_cache/pragnosia_data/window2_train.bin`, 330 GB / 176.6B
+  tokens; the laptop ships a ~1 GB / ~500M-token strided subsample.)
 - `big_valid.bin` = what the abstention boundary / seek-match / answer-confidence
-  self-calibrate from. A fake valid set (decodes as garbage, ppl ~2 instead of ~18)
-  gives wrong boundaries.
+  self-calibrate from. A fake valid set (decodes as garbage, ppl ~2) gives wrong boundaries.
 
 These bins are gitignored. Verify a transferred bin: it should decode to clean
-prose/math under `bpe.json`, and base-model val ppl on `big_valid` ≈ 18–22 (this
-run's training value), not ~2. See RUNBOOK.md STEP 1 for the full rationale.
+prose/math under `bpe.json`, and base-model val ppl on the valid set should land near the
+checkpoint's reported training value, not ~2. See RUNBOOK.md STEP 1 for the full rationale.

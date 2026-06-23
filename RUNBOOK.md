@@ -1,72 +1,87 @@
 # Pragnosia — Runbook (train once, then it grows by itself)
 
-> ### ⚡ Carrier mode (this session's finding)
-> `pragnosia.json` now has a **`carrier`** field selecting the token-mixing design:
-> `none` (transformer-only) · `single` (one spin carrier after all blocks — the 1.4B used this,
-> and it drifted to a causally-negligible side-channel) · `per_block` · **`spin_dominant`** (the
-> intended design — spin carrier as the token mixer, attention only every 4th layer). A
-> param-matched ablation found **spin-dominant wins ~21%** (219 vs 279 ppl). The live
-> `pragnosia.json` is set to `spin_dominant`; the 1.4B attention-dominant arch is in
-> `pragnosia.json.1p4B`. To train a design, point `pragnosia.json` at it and run STEP 2 —
-> `train_pragnosia.py` and `grow.py` read the carrier mode from the config. See `TRAINING_NOTES.md`
-> for the full ablation table and the honest small-scale/single-seed caveat.
+> ### ⚡ Carrier mode (the intended + validated design)
+> `pragnosia.json` has a **`carrier`** field selecting the token-mixing design:
+> `none` (transformer-only) · `single` (one spin carrier after all blocks — the 1.4B
+> `pragnosia_best.pt` used this and it drifted to a causally-negligible side-channel,
+> carrier 0.37% of params) · `per_block` · **`spin_dominant`** (the intended design —
+> a diagonal-complex spin-carrier as the token mixer replacing attention in 3 of every
+> 4 layers, with a normal attention block every 4th layer). A param-matched ablation
+> found **spin-dominant wins ~21%** (219 vs 279 ppl). The live `pragnosia.json` is set to
+> `spin_dominant` (d=512, carrier `pragnosia_spin.pt`); the 1.4B attention-dominant arch
+> is preserved in `pragnosia.json.1p4B` as a reference, not the path forward. To train a
+> design, point `pragnosia.json` at it and run STEP 2 — `train_pragnosia.py` and `grow.py`
+> read the carrier mode from the config. See `TRAINING_NOTES.md` for the full ablation
+> table and the honest small-scale/single-seed caveat.
 
-## STEP 1 — Build the rebalanced corpus  (downloads several GB, ~once)
+## STEP 1 — Build the corpus  (downloads several GB, ~once)
 ```
 python3 prepare_data.py
 ```
-Produces: `data/corpus_big.txt`, `data/bpe16384.json`, `data/big_train.bin`,
+Produces: `data/bpe.json` (digit-aware BPE tokenizer), `data/big_train.bin`,
 `data/big_valid.bin`, and `pragnosia.json` (the model config).
 Corpus mix (stories deliberately only ~10%): Simple Wikipedia (knowledge) +
 OpenOrca/Alpaca/Dolly (reasoning) + GSM8K/Orca-Math (mathematics) +
 CodeAlpaca/Python-instructions (coding) + OpenAssistant (multi-turn chat) +
 CoEdit (English grammar) + TinyStories (10%, fluency).
 
+For large-scale corpora (the window1/window2 scaling builds), use `prepare_scale.py`
+(parallel/sharded tokenizer); for post-training data use `prepare_posttrain.py`.
+
 > ### ⚠️ CRITICAL — the data bins must match the model, and travel with it
-> `data/big_train.bin` and `data/big_valid.bin` are **not optional runtime files** —
-> they are load-bearing:
-> - **`big_train.bin` is the replay source for continual learning.** Every `teach()`
+> `data/big_train.bin` (or the larger `window2_train.bin`) and `data/big_valid.bin` are
+> **not optional runtime files** — they are load-bearing:
+> - **The train bin is the replay source for continual learning.** Every `teach()`
 >   / curiosity-learn (and the startup identity install) interleaves replay batches
 >   from it so learning a new fact does **not** erase old skills. Without replay,
->   teaching is catastrophic (val ppl 22 → 1000+). With replay from the **wrong or
->   dirty** corpus, every teach drags the model off its trained distribution and
->   leaks junk into generations — the model looks broken even though the base
->   checkpoint is fine. The bin **must be the same corpus the checkpoint was trained
->   on**, tokenized with the **same `data/bpe.json`**.
+>   teaching is catastrophic. With replay from the **wrong or dirty** corpus, every
+>   teach drags the model off its trained distribution and leaks junk into generations
+>   — the model looks broken even though the base checkpoint is fine. The bin **must be
+>   the same corpus the checkpoint was trained on**, tokenized with the **same
+>   `data/bpe.json`**. `brain.py` replays the train bin during teach.
 > - **`big_valid.bin` is what every internal scale self-calibrates from** (abstention
 >   boundary, seek-match, answer-confidence). A non-representative valid set gives
 >   wrong boundaries → the controller mis-routes (abstains/over-learns).
 >
-> These bins are **gitignored** (large, regenerable). When you move a trained
-> `pragnosia.pt` to another machine, **carry the matching `big_train.bin` +
-> `big_valid.bin` + `bpe.json` with it**, or regenerate them there with
-> `prepare_scale.py` using the *same* tokenizer. Never rebuild them from a
+> These bins are **gitignored** (large, regenerable runtime state). When you move a
+> trained checkpoint to another machine, **carry the matching train bin +
+> `big_valid.bin` + `bpe.json` with it**, or regenerate them there with `prepare_data.py`
+> / `prepare_scale.py` using the *same* tokenizer. Never rebuild them from a
 > different/uncleaned corpus. Sanity check before use: a slice should decode to clean
-> prose/math (not HTML markup), and `H.val_ppl(base_lm, big_valid)` should land near
-> the checkpoint's reported training val ppl (~18–22 for the 176M run), not ~2.
+> prose/math (not HTML markup), and base-model val ppl on the valid set should land near
+> the checkpoint's reported training val ppl, not ~2.
 >
 > **Compact replay for easy transfer (lossless).** Replay only needs *distribution
-> coverage*, not full size — so `big_train.bin` ships as a **~1 GB strided subsample**
-> of the full 5.4B-token corpus, not the whole 10.8 GB. Verified no regression: teach
-> impact on val ppl and on skills (`def add → return a+b`) is identical to full
-> replay, and the integrated self-test stays 14/14. The whole transferable bundle is
-> then **~1.7 GB** (`pragnosia.pt` 0.7 + `big_train.bin` 1.0 + valid + bpe). To make
-> one, **stride-sample chunks across the WHOLE corpus** (e.g. one 4096-token chunk
-> every Nth) — never a contiguous slice, which would miss whole regions (the corpus
+> coverage*, not full size. The full H100 `window2_train.bin` is 330 GB / 176.6B tokens
+> (CoT-enriched) at `/mnt/kv_cache/pragnosia_data/window2_train.bin`; the laptop ships a
+> **~1 GB strided CoT-inclusive subsample (~500M tokens)** instead of the whole thing.
+> To make one, **stride-sample chunks across the WHOLE corpus** (e.g. one 4096-token
+> chunk every Nth) — never a contiguous slice, which would miss whole regions (the corpus
 > is ordered math→web). Identity / word-importance caches regenerate on first run.
 
-## STEP 2 — Train the 176M brain  (ONE long run; GPU-ADAPTIVE)
+## STEP 2 — Train the brain  (ONE long run; GPU-ADAPTIVE)
 ```
-nohup python3 train_pragnosia.py > pragnosia_train.log 2>&1 &
+nohup python3 train_pragnosia.py --resume --bs 24 --lr 0 > pragnosia_train.log 2>&1 &
 tail -f pragnosia_train.log
 ```
-- 176M params (d=1024, 12 layers, vocab 16384), best checkpoint -> `pragnosia_168m.pt`.
+- The arch comes from `pragnosia.json` (d/layers/carrier); best checkpoint → the config's
+  `ckpt` (e.g. `pragnosia_spin.pt` for the spin-dominant run).
 - **GPU-adaptive**: it auto-detects the GPU's VRAM and tunes batch size, gradient
-  accumulation, precision (bf16 on capable GPUs), and compile. Move to a bigger
-  GPU and just (re)start or `--resume` — it picks up the new hardware and trains
-  optimally. No edits.
-- Resume on ANY GPU:  `python3 train_pragnosia.py --resume`
-- When `pragnosia_168m.pt` exists, **brain.py automatically uses it**.
+  accumulation, precision (bf16 on capable GPUs), and `torch.compile`. **compile ON gives
+  ~2× throughput** (49K→~100K tok/s at bs=24 on an RTX 4060); the prefetcher CUDA race that
+  caused compile asserts is fixed. On the laptop set `NOCOMPILE=1` only if compile misbehaves.
+- **LR**: `--lr 0` on a **fresh** run derives the peak LR via the Smith range-test (÷10).
+  On `--resume` it **RESTORES** the peak LR from the sidecar (find_lr is unreliable on
+  trained weights). After warm-up the validation signal drives LR (auto-halve on
+  degradation, ease ×0.7 on plateau).
+- **True-resume**: the sidecar `pragnosia_<ckpt>_state.json` carries
+  `{step, lr_scale, lr_wait, best, lr}`. `--resume` **continues from that step at the
+  restored LR — it does NOT restart from 0.** The sidecar is gitignored (runtime state).
+- **`TOK_PER_PARAM`** env var (default 20) = how many tokens/param to train each size
+  before it may grow. Raise to 80 for an inference-optimal / leaner model (it does NOT
+  speed training).
+- Other flags: `--steps N`, `--no-grow` (disable grow-as-you-train).
+- When the config's `ckpt` exists, **brain.py automatically uses it**.
 
 ## STEP 3 — Use it  (after training; this is the part you asked for)
 The brain decides everything itself; nothing is hardcoded.
@@ -78,11 +93,25 @@ python3 brain.py            # it LIVES: talk to it; it answers what it knows, le
                             #   doesn't know (Wikipedia), and grows itself when it saturates.
                             #   (press Enter alone to let it think; 'quit' saves + exits)
 python3 brain.py "tell or ask it anything"     # one-shot version of the same
-python3 brain.py test                          # verify it: full self-test (faculties + language)
+python3 brain.py test                          # full self-test on the spin-dominant model
+```
+`python3 brain.py test` exercises the whole spin-dominant model: language, honesty,
+learn/seek, the in-weights **SUBCONSCIOUS** memory, and **COGNITION**
+(metacognition / deliberation / autonomous monologue).
+
+For a read-only, CPU-only LM capability battery against any checkpoint (never touches a
+running training job):
+```
+python3 faculty_test.py pragnosia_spin.pt      # builds with carrier=cfg['carrier']
 ```
 
 ## STEP 4 — It grows by itself (NO retraining, ever)
-- In `chat`, when you tell it something new, it **decides on its own to learn it**
+- Growth is **self-governing and function-preserving**, fired only on probe-confirmed
+  saturation. The only caps are the **DATA budget** (tokens/20) and **VRAM** — there are
+  no hardcoded size caps. Confirmed in production: a run grew 24M(4L)→27.3M(5L) by itself,
+  then capped at the data budget.
+- `grow.py` modes (all carrier-aware): `grow_depth` / `grow_width` / `shrink_width`.
+- In chat, when you tell it something new, it **decides on its own to learn it**
   (curiosity = its own uncertainty) and **saves it on exit** — it remembers next session.
 - `teach` persists immediately (weights + memory in `learned_memory.json`).
 - After it has grown a lot, re-tune its internal scales (optional, no retraining):
@@ -91,7 +120,7 @@ python3 brain.py test                          # verify it: full self-test (facu
   ```
 
 ## What it can do once trained (all in one model, all real, none hardcoded)
-- **Reason** about general things (commonsense/causal) — stronger at 168M than 20M
+- **Reason** about general things (commonsense/causal)
 - **Generate / understand language**, answer questions
 - **Know what it doesn't know** and say "I don't know" instead of fabricating
 - **Seek** answers from its memory
@@ -100,8 +129,9 @@ python3 brain.py test                          # verify it: full self-test (facu
 - **Know itself** (name Pragnosia, its nature) and decide every action itself
 
 ## Honest expectation
-168M is GPT-2-small/medium class. It will be clearly better than the 20M model —
-more reliable reasoning, more facts, sharper "I don't know" — but it is still small;
-it will not match large LLMs. Strength comes from scale + reasoning data, both of
-which this run adds as far as one laptop allows.
-```
+These are small models (the spin-dominant ablation is ~37M; the 1.4B reference is
+GPT-2-large class). They will be clearly better than a 20M toy — more reliable reasoning,
+more facts, sharper "I don't know" — but still small; they will not match large LLMs.
+Strength comes from scale + reasoning data, both of which these runs add as far as the
+hardware allows. The spin-dominant design's real payoff is **structural**: long-context
+`O(T)` mixing and recurrent `O(1)`/token inference (no KV-cache growth).
