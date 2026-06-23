@@ -10,10 +10,11 @@ State as of this handover: commit `e6c5ff2` (run `git log --oneline -15` for rec
 
 ## 0. What this is
 
-**Pragnosia** is a "spinning brain" — a neural substrate built on the opposite bet from
-normal LLMs. Its reasoning core uses **rotational recurrent dynamics** (`W = −ρQQᵀ + S`,
-answer lives in the *phase* of a non-converging oscillation, verified by a brain-swap
-causal test). On top of that, one wired object behaves like a **living child mind**:
+**Pragnosia** is a "spinning brain" — a transformer/SSM hybrid (in the family of Mamba/RWKV)
+built on the bet that a **rotational "spin" recurrence should be the core token-mixer**
+(`W = −ρQQᵀ + S` in the reasoning core; a diagonal-complex parallel-scan carrier in the LM —
+information rides in the *phase*, probed by a brain-swap causal intervention). On top of that,
+one wired object behaves like a **living child mind**:
 it answers what it knows, **learns continually without forgetting**, is **honest about
 what it doesn't know**, is **curious (asks its own questions)**, **looks things up on the
 internet**, **knows itself**, and **grows its own capacity** when saturated.
@@ -22,8 +23,21 @@ The user's north star: **raise it like a child, confirm it behaves child-like, t
 it run on its own thoughts and grow into an adult brain.** Capability priority:
 (1) flawless language + the living-brain faculties, (2) then image, (3) then voice.
 
-The current instance is **176M params** (GPT-2-class). It was trained on a laptop +
-this H100. The H100 is where it scales up.
+The current best checkpoint is **`pragnosia_best.pt`, a self-grown 1.4B (48L), val ppl 17.35**
+(`pragnosia.json.1p4B` describes it). The live `pragnosia.json` now points at the
+**spin-dominant** ablation arch (d=512, 4L, `carrier="spin_dominant"`, ckpt `pragnosia_spin.pt`).
+
+> ### ⚡ HEADLINE FINDING (this session — read before scaling anything)
+> The 1.4B **drifted to attention-dominant**. The spin carrier is a single fixed ~5.25M layer, so
+> its parameter share collapsed **5.76% → 1.90% → 0.37%** (21M → 276M → 1.4B). At 1.4B the brain-swap
+> test still passes *directionally* but the causal signal is only **0.028% of the loss** — spin is
+> **causally negligible as built**. The *intended* design is **spin-dominant** (spin = the core
+> token-mixer, attention only every 4th layer as a helper). A param-matched ablation confirms it:
+> **spin-dominant 219 ppl vs attention-only 279 vs per-block-hybrid 228** (37M vs 36M/46M) — a ~21%
+> win at matched params. Carrier modes (`none`/`single`/`per_block`/`spin_dominant`) are now wired
+> through `pragnosia.json` → `train_pragnosia.py` → `grow.py`. **Caveat: small-scale, short-budget,
+> single-seed — replicate at 200M–1B before treating as proven.** The next H100 job is to scale
+> spin-dominant, not to keep growing the attention-dominant 1.4B.
 
 ---
 
@@ -188,8 +202,12 @@ H100's job):**
 
 The H100 is for the things the laptop can't do. In rough priority:
 
-1. **Fix identity + honesty bleed** (§6 #1–2) — do this first; it's cheap and it's a
-   core-goal failure. Re-run the probe (inline) to confirm before/after.
+0. **Scale the spin-dominant design (the headline finding).** The ablation says the core mixer
+   should be spin, not attention. Train `carrier="spin_dominant"` at 200M–1B, multi-seed, and
+   replicate the ~21% param-efficiency win at scale. This is the most important new direction —
+   the current 1.4B is the *attention-dominant* drift and should not just be grown further.
+1. **Fix identity + honesty bleed** (§6 #1–2) — cheap and a core-goal failure. Re-run the probe
+   (inline) to confirm before/after.
 2. **Rebalance the corpus and retrain/continue** to fix definitions + general knowledge.
    The current mix is too math-heavy. `prepare_scale.py` controls the mix; aim for more
    encyclopedic/world knowledge while keeping math (don't lose the arithmetic win). See

@@ -105,13 +105,13 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
         <li><b>Confidence is bolted on</b> — they often state wrong things fluently.</li>
         <li><b>Power from scale</b>: trillions of tokens, billions–trillions of parameters.</li>
       </ul></div>
-    <div class="vcard prg"><div class="t">Pragnosia</div><h3>Spin to compute, and keep living</h3>
+    <div class="vcard prg"><div class="t">Pragnosia</div><h3>Spin as the core mixer, and keep living</h3>
       <ul>
-        <li><b>Spins</b> — the answer is the phase of an ongoing oscillation, proven causal by brain-swap.</li>
+        <li><b>Spins</b> — a transformer/SSM hybrid (à la Mamba/RWKV) where a rotational recurrence carries state in its <i>phase</i>, probed by the brain-swap intervention.</li>
         <li><b>Alive.</b> Learns new facts online, forever, and remembers across sessions — no retraining.</li>
         <li><b>Knowledge can be taught and recalled</b> on the fly, with surprise-modulated plasticity.</li>
         <li><b>Confidence is intrinsic</b> — it abstains (“I don't know”) from its own uncertainty.</li>
-        <li><b>Power from mechanism</b>: small and self-growing, but causal, self-knowing, self-deciding.</li>
+        <li><b>Parameter-efficient when spin is the core</b>: a param-matched test shows the spin-dominant design beats an attention-only baseline by ~21% — small-scale, single-seed, but a properly-controlled signal.</li>
       </ul></div>
   </div>
 </div></section>
@@ -125,7 +125,7 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
     <div class="row"><div class="feat">Fluent language</div><div class="llmcol"><span class="yes">Strong</span> — document-level</div><div class="prgcol"><span class="part">Decent</span> — sentence-level (small)</div></div>
     <div class="row"><div class="feat">World knowledge</div><div class="llmcol"><span class="yes">Vast</span></div><div class="prgcol"><span class="part">Limited</span> (small + undertrained for size)</div></div>
     <div class="row"><div class="feat">Reasoning depth</div><div class="llmcol"><span class="yes">Strong</span> (math, code, logic)</div><div class="prgcol"><span class="part">Shallow</span> but real & causal</div></div>
-    <div class="row"><div class="feat">Causally-proven reasoning</div><div class="llmcol"><span class="no">Unverified</span></div><div class="prgcol"><span class="yes">Yes</span> — brain-swap test</div></div>
+    <div class="row"><div class="feat">Causal-intervention method</div><div class="llmcol"><span class="no">None standard</span></div><div class="prgcol"><span class="yes">Brain-swap</span> — perturbs & gates the carrier</div></div>
     <div class="row"><div class="feat">Knows what it doesn't know</div><div class="llmcol"><span class="part">Partial</span>, bolted on</div><div class="prgcol"><span class="yes">Built-in</span> — abstains</div></div>
     <div class="row"><div class="feat">Learn after training (no retrain)</div><div class="llmcol"><span class="no">No</span> — frozen</div><div class="prgcol"><span class="yes">Yes</span> — continuous, persistent</div></div>
     <div class="row"><div class="feat">Forgetting when updated</div><div class="llmcol"><span class="no">Catastrophic</span></div><div class="prgcol"><span class="yes">Low</span> — replay + plasticity</div></div>
@@ -144,12 +144,13 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
     <div class="col pros"><h3>Where Pragnosia wins</h3><ul>
       <li><b>Genuinely alive</b> — learns and remembers forever without retraining or forgetting. Even frontier LLMs can't do this.</li>
       <li><b>Honest by design</b> — says “I don't know” from its own uncertainty instead of confidently bluffing.</li>
-      <li><b>Provably reasoning</b> — the brain-swap test shows it computes in-state, not by memorized lookup.</li>
+      <li><b>A rigorous causal probe</b> — the brain-swap intervention gates the carried state to measure whether it's actually used (it's how we caught the side-channel drift below).</li>
       <li><b>Tiny &amp; cheap</b> — runs and trains on a single laptop GPU; ~700 MB on disk.</li>
       <li><b>Brain-like learning</b> — surprise-modulated plasticity: learns hard on the new, gently on the familiar.</li>
       <li><b>Nothing hardcoded</b> — what matters, when to abstain, what to recall: all derived from data, re-tuned as it grows.</li>
     </ul></div>
     <div class="col cons"><h3>Where it loses (for now)</h3><ul>
+      <li><b>The scaled model was built backwards</b> — in the 1.4B, growth diluted the single spin carrier to 0.37% of the parameters, so it's effectively an attention transformer with a vestigial spin side-channel (causal signal just 0.028% of the loss). The fix — making spin the core mixer — wins ~21% at matched params, but is so far only proven at small scale / single seed.</li>
       <li><b>Weak multi-hop composition</b> — undertrained for its grown size; relational analogy, multi-step deduction and systematic generalization still lag. More tokens, not more parameters, is the lever.</li>
       <li><b>Can be confidently wrong</b> on familiar-but-incorrect facts (the same failure as big LLMs).</li>
       <li><b>The pure-spin reasoning core is sequential</b> by design — its tanh dynamics are what the brain-swap test verifies. (The <i>language</i> carrier is now a diagonal-complex <b>parallel scan</b>, so language training is no longer the bottleneck.)</li>
@@ -163,7 +164,7 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
 <section><div class="wrap reveal">
   <div class="bottom">
     <h3>The bottom line</h3>
-    <p>An LLM is a <b>brilliant, frozen library</b> — enormous knowledge, but it stops learning the day training ends and will fluently invent an answer rather than admit ignorance. Pragnosia is a <b>tiny, living mind</b> — it knows far less, but it <b>keeps learning, knows the edge of its own knowledge, refuses to fabricate, and provably reasons in motion</b>. The bet: those properties — alive, honest, causal — are what a frozen trillion-parameter model fundamentally lacks. Scale makes a better library; this is an attempt at a better <i>brain</i>.</p>
+    <p>An LLM is a <b>brilliant, frozen library</b> — enormous knowledge, but it stops learning the day training ends and will fluently invent an answer rather than admit ignorance. Pragnosia is a <b>tiny, living mind</b> — it knows far less, but it <b>keeps learning, knows the edge of its own knowledge, refuses to fabricate, and carries its computation in a spinning state we can causally probe</b>. It's a transformer/SSM hybrid where spin is meant to be the core mixer — and our honest, measured finding this session is that it's most parameter-efficient exactly when spin <i>is</i> the core (a result still to be proven at large scale). The bet: alive, honest, and causally-probeable are what a frozen trillion-parameter model fundamentally lacks. Scale makes a better library; this is an attempt at a better <i>brain</i>.</p>
   </div>
 </div></section>
 

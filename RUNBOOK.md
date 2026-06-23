@@ -1,5 +1,16 @@
 # Pragnosia — Runbook (train once, then it grows by itself)
 
+> ### ⚡ Carrier mode (this session's finding)
+> `pragnosia.json` now has a **`carrier`** field selecting the token-mixing design:
+> `none` (transformer-only) · `single` (one spin carrier after all blocks — the 1.4B used this,
+> and it drifted to a causally-negligible side-channel) · `per_block` · **`spin_dominant`** (the
+> intended design — spin carrier as the token mixer, attention only every 4th layer). A
+> param-matched ablation found **spin-dominant wins ~21%** (219 vs 279 ppl). The live
+> `pragnosia.json` is set to `spin_dominant`; the 1.4B attention-dominant arch is in
+> `pragnosia.json.1p4B`. To train a design, point `pragnosia.json` at it and run STEP 2 —
+> `train_pragnosia.py` and `grow.py` read the carrier mode from the config. See `TRAINING_NOTES.md`
+> for the full ablation table and the honest small-scale/single-seed caveat.
+
 ## STEP 1 — Build the rebalanced corpus  (downloads several GB, ~once)
 ```
 python3 prepare_data.py
