@@ -24,38 +24,48 @@ import s6_hybrid as H
 
 
 def _shell(model, n_layer, mlp_mult):
-    big = H.SpinAttentionLM(model.emb.num_embeddings, model.d, model.n_head, n_layer, mlp_mult=mlp_mult)
+    mode = getattr(model, "carrier_mode", "single")        # preserve the carrier architecture across growth
+    big = H.SpinAttentionLM(model.emb.num_embeddings, model.d, model.n_head, n_layer, mlp_mult=mlp_mult, carrier=mode)
     big = big.to(next(model.parameters()).device)
     big.emb.load_state_dict(model.emb.state_dict())
     big.pos.load_state_dict(model.pos.state_dict())
-    big.carrier.load_state_dict(model.carrier.state_dict())
     big.lnf.load_state_dict(model.lnf.state_dict())
+    if mode == "single":
+        big.carrier.load_state_dict(model.carrier.state_dict())
+    elif mode == "per_block":
+        for nc, oc in zip(big.carriers, model.carriers): nc.load_state_dict(oc.state_dict())
     big.head.weight = big.emb.weight                       # keep the tie
-    return big
+    return big                                             # spin_dominant/none carriers live in the blocks
 
 @torch.no_grad()
 def grow_depth(model, n_new=1):
-    """Add n_new transformer blocks as near-identity -> function preserved."""
+    """Add n_new blocks as near-identity -> function preserved. Block type (attention or spin-mixer)
+    follows the model's carrier mode + the new index, so it works for any architecture."""
     nl = len(model.blocks)
     big = _shell(model, nl + n_new, model.mlp_mult)
-    for i in range(nl):                                    # copy existing blocks
+    for i in range(nl):                                    # copy existing blocks (same type at same index)
         big.blocks[i].load_state_dict(model.blocks[i].state_dict())
-    for j in range(nl, nl + n_new):                        # new blocks -> identity
+    for j in range(nl, nl + n_new):                        # new block -> near-identity
         b = big.blocks[j]
-        nn.init.zeros_(b.attn.proj.weight); nn.init.zeros_(b.attn.proj.bias)
-        nn.init.zeros_(b.mlp[2].weight);    nn.init.zeros_(b.mlp[2].bias)
+        nn.init.zeros_(b.mlp[2].weight); nn.init.zeros_(b.mlp[2].bias)
+        if isinstance(b, H.Block):
+            nn.init.zeros_(b.attn.proj.weight); nn.init.zeros_(b.attn.proj.bias)
+        else:                                              # SpinBlock: damp its carrier so it starts ~identity
+            b.carrier.gate.fill_(-6.0)
+    if getattr(model, "carrier_mode", "single") == "per_block":
+        for j in range(nl, nl + n_new): big.carriers[j].gate.fill_(-6.0)
     return big
 
 @torch.no_grad()
 def grow_width(model, add_mult=1):
-    """Widen every block's MLP by add_mult*d neurons (mlp_mult += add_mult); new
-    neurons' OUTPUT weights = 0 -> function preserved. Resume-safe via mlp_mult."""
+    """Widen every block's MLP by add_mult*d neurons; new neurons' OUTPUT = 0 -> function preserved.
+    Generic over block type (copies all non-mlp parts -- attention or spin carrier -- then widens mlp)."""
     nl = len(model.blocks); d = model.d; h_old = model.mlp_mult * d
     big = _shell(model, nl, model.mlp_mult + add_mult)
     for i in range(nl):
         ob, nb = model.blocks[i], big.blocks[i]
-        nb.ln1.load_state_dict(ob.ln1.state_dict()); nb.attn.load_state_dict(ob.attn.state_dict())
-        nb.ln2.load_state_dict(ob.ln2.state_dict())
+        for name, mod in ob.named_children():              # copy everything except the mlp (any block type)
+            if name != "mlp": getattr(nb, name).load_state_dict(mod.state_dict())
         nb.mlp[0].weight[:h_old] = ob.mlp[0].weight; nb.mlp[0].bias[:h_old] = ob.mlp[0].bias
         nn.init.normal_(nb.mlp[0].weight[h_old:], 0.0, 0.02); nn.init.zeros_(nb.mlp[0].bias[h_old:])
         nb.mlp[2].weight[:, :h_old] = ob.mlp[2].weight; nb.mlp[2].bias.copy_(ob.mlp[2].bias)

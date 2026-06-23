@@ -94,7 +94,8 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     torch.manual_seed(0); np.random.seed(0)
     cfg = autotune()
     td, vd = H.load(CFG["train_bin"]), H.load(CFG["valid_bin"])
-    m = H.SpinAttentionLM(VOC, CFG["d"], CFG["heads"], CFG["layers"], mlp_mult=CFG.get("mlp_mult", 4))  # build on CPU
+    m = H.SpinAttentionLM(VOC, CFG["d"], CFG["heads"], CFG["layers"], mlp_mult=CFG.get("mlp_mult", 4),
+                          carrier=CFG.get("carrier", "single"))                                    # build on CPU
     p = sum(x.numel() for x in m.parameters())
     if resume and os.path.exists(CFG["ckpt"]):                          # load weights on CPU (no 2x GPU spike)
         m.load_state_dict(torch.load(CFG["ckpt"], map_location="cpu", weights_only=True)); print("resumed", flush=True)
