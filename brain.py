@@ -541,13 +541,14 @@ class Brain(nn.Module):
         if not text:                                    # nothing said -> think on its own (autonomous monologue)
             return {"monologue": self.think_aloud(steps=4)} if self.learn else {"answer": "(I'm listening.)"}
         if text.endswith("?"):
-            cons, ans = self._self_consistency(text)    # answer only if it HONESTLY knows
-            if cons >= self.consistency_min:
+            chat = f"<user> {text} <assistant>"             # ask in the format the model was TRAINED on --
+            cons, ans = self._self_consistency(chat)        # a bare question is out-of-distribution and the
+            if cons >= self.consistency_min:                # honesty gate then over-abstains on what it knows
                 return {"answer": ans[:200]}
             if not self.learn:                              # inference-only: just be honest
                 return {"answer": "I don't know."}
             reasoned = self._deliberate(text)               # not directly sure -> DELIBERATE before giving up
-            if self._self_consistency(f"{text} {reasoned}")[0] >= self.consistency_min:
+            if self._self_consistency(f"{chat} {reasoned}")[0] >= self.consistency_min:
                 return {"answer": reasoned[:200], "deliberated": True}
             topic = self.wonder(text) or text.rstrip("? ").split(" ")[-1]
             tr = {"answer": "I don't know -- let me find out.", "didnt_know": topic}
