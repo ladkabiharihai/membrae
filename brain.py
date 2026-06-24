@@ -188,7 +188,7 @@ class Brain(nn.Module):
         cand = sorted(set(pos + neg))
         return min(cand, key=lambda t: abs(sum(x > t for x in neg) / N - sum(x <= t for x in pos) / P))
 
-    def _install_identity(self, cache=f"pragnosia_id_{CFG['vocab']}.pt"):
+    def _install_identity(self, cache=f"pragnosia_id_{CFG['vocab']}_d{CFG['d']}l{CFG['layers']}m{CFG.get('mlp_mult',4)}.pt"):
         """Identity as real KNOWLEDGE in the weights -- learned the way a child learns
         its name: MANY varied exposures of the one concrete fact (the name), so it
         integrates and is recalled by the brain's OWN GENERATION, gated by its OWN
