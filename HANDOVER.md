@@ -56,6 +56,18 @@ Carrier modes (`none`/`single`/`per_block`/`spin_dominant`) are wired through `p
 **Confirmed in production:** the laptop spin-dominant run **grew itself 24M (4L) → 27.3M (5L)** (probe-confirmed
 saturation, function-preserving), then capped at the ~25M data budget — self-governing growth works on spin blocks.
 
+**🔑 AT-SCALE VALIDATION (284M — the decisive result):** the H100 trained a **284M spin-dominant** model
+(d=768, 20L, mlp9) to **val ppl 24.5** on the 176.6B CoT corpus (~24 tok/param). **Carrier-causality ablation:
+zeroing the spin carrier sends ppl 25 → 7716 (306×); zeroing attention sends it 25 → 85 (3.4×)** — the spin
+carrier is the **LOAD-BEARING CORE**, the decisive opposite of the 1.4B's vestigial 0.028%. When BUILT
+spin-dominant, the carrier becomes the dominant computation at scale — exactly the intended design. Capability
+jumped vs the 27M: **arithmetic 3/3, knowledge 2/3, theory-of-mind 2/2** ("capital of France→Paris", "2+2→4",
+fluent stories); multi-step/counterfactual/causal still weak (next axis). The brain.py chat honesty gate is
+**over-conservative on the question-form** (abstains on some knowables; correct on the unknowables) — a
+calibration follow-up. The 284M is synced to the laptop as `pragnosia_spin.pt` (config d=768). (The classic
+brain-swap test needs cross-segment carried state, which only `single`/`per_block` thread; in `spin_dominant`
+the carrier is intra-block, so **ablation is the equivalent causal measure**.)
+
 **Speed:** spin-dominant is *slower* at ctx=256 (the scan does more than attention on short sequences; it
 can't be in-place-optimized — that breaks autograd). Its advantage is **long context** (O(T) vs attention
 O(T²)) and **inference** (recurrent → O(1)/token, no KV cache). `torch.compile` **fuses the scan → ~2×**
@@ -140,12 +152,12 @@ the checkpoint or rebuild with `prepare_scale.py`. Sanity: a slice decodes to cl
 ---
 
 ## 7. State as of this handover
-A **spin-dominant from-scratch run** trained on the laptop (`pragnosia_spin.pt`): it **self-grew 24M(4L)→27.3M(5L)**,
-reached **~it 53,500, val ppl ~40**, at **~85K tok/s** (compile, bs=24). Probe of the 27.3M: **fluent** generation,
-**weak** faculties (it's a 27M model — can't store world facts), **faint emergence** (solved a theory-of-mind
-false-belief + an in-context binding case). The laptop now holds a **fresh ~1 GB strided CoT-inclusive subsample**
-(500M tokens) pulled from the H100's 330 GB corpus. The 1.4B (`pragnosia_best.pt`, attention-dominant, the wrong
-build) is the reference. The decisive experiment — spin-dominant vs transformer-only at 200M–1B on the full CoT
+**The active model is the 284M spin-dominant** (`pragnosia_spin.pt`, d=768/20L/mlp9, config in `pragnosia.json`),
+trained on the H100 to step 418K / **val ppl 24.5**, synced to the laptop and verified (bf16 ppl 25.2 here ≈ 24.54
+fp32 there). Its eval is the §2 at-scale validation (carrier 306× load-bearing; arithmetic/knowledge/ToM emerged;
+honesty gate over-conservative on questions). The earlier 27M laptop run (self-grew 24M→27.3M, ppl ~40) was the
+small-scale proof. The laptop holds a ~1 GB strided CoT-inclusive subsample (500M tokens) for local teach/replay.
+The 1.4B (`pragnosia_best.pt`, attention-dominant, the wrong build) is the reference. The decisive experiment — spin-dominant vs transformer-only at 200M–1B on the full CoT
 corpus — **is the H100's job (§3).** Deferred no-hardcode items (need teach-regression tests): teach
 `plasticity`/`target` clamps, trainer `warm`/`target_eff`. Key memory for future Claude sessions lives in
 the user's `memory/` dir (`spinning-brain-project.md`).

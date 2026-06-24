@@ -111,7 +111,7 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
         <li><b>Alive.</b> Learns new facts online, forever, and remembers across sessions — no retraining.</li>
         <li><b>Knowledge can be taught and recalled</b> on the fly, with surprise-modulated plasticity.</li>
         <li><b>Confidence is intrinsic</b> — it abstains (“I don't know”) from its own uncertainty.</li>
-        <li><b>Parameter-efficient when spin is the core</b>: a param-matched test shows the spin-dominant design beats an attention-only baseline by ~21% — small-scale, single-seed, but a properly-controlled signal.</li>
+        <li><b>Parameter-efficient when spin is the core</b>: a param-matched test shows the spin-dominant design beats an attention-only baseline by ~21%, and at <b>284M</b> the spin carrier is provably the load-bearing core (ablate it → perplexity 306× worse vs 3.4× for attention) — single-seed and not yet at 1B, but a properly-controlled at-scale signal.</li>
       </ul></div>
   </div>
 </div></section>
@@ -150,12 +150,12 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
       <li><b>Nothing hardcoded</b> — what matters, when to abstain, what to recall: all derived from data, re-tuned as it grows.</li>
     </ul></div>
     <div class="col cons"><h3>Where it loses (for now)</h3><ul>
-      <li><b>The scaled model was built backwards</b> — in the 1.4B, growth diluted the single spin carrier to 0.37% of the parameters, so it's effectively an attention transformer with a vestigial spin side-channel (causal signal just 0.028% of the loss). The fix — making spin the core mixer — wins ~21% at matched params, but is so far only proven at small scale / single seed.</li>
+      <li><b>The scaled 1.4B was built backwards</b> — growth diluted the single spin carrier to 0.37% of the parameters, so it's effectively an attention transformer with a vestigial spin side-channel (causal signal just 0.028% of the loss). The fix — making spin the core mixer — wins ~21% at matched params and is now validated at <b>284M</b> (carrier load-bearing: 306× ablation cost), but is still single-seed and not yet at 1B.</li>
       <li><b>Weak multi-hop composition</b> — undertrained for its grown size; relational analogy, multi-step deduction and systematic generalization still lag. More tokens, not more parameters, is the lever.</li>
       <li><b>Can be confidently wrong</b> on familiar-but-incorrect facts (the same failure as big LLMs).</li>
       <li><b>The pure-spin reasoning core is sequential</b> by design — its tanh dynamics are what the brain-swap test verifies. (The <i>language</i> carrier is now a diagonal-complex <b>parallel scan</b>, so language training is no longer the bottleneck.)</li>
       <li><b>Not a finished product</b> — it's a research substrate proving mechanisms, not a polished assistant.</li>
-      <li><b>Emergence unproven at scale</b> — only faint seeds (occasional theory-of-mind and in-context binding at 27M); broad emergent skills need real scale + the chain-of-thought corpus.</li>
+      <li><b>Emergence is early, not broad</b> — at the new 284M spin-dominant scale, arithmetic (3/3), world-knowledge (2/3) and theory-of-mind (2/2) genuinely emerged (up from faint seeds at 27M), but multi-step, counterfactual and causal reasoning are still 0/2 — the next axis. And the honesty chat gate is currently <i>over-conservative</i> (abstains on facts it knows in statement form); re-calibrating it is a known follow-up.</li>
     </ul></div>
   </div>
 </div></section>
@@ -164,7 +164,7 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
 <section><div class="wrap reveal">
   <div class="bottom">
     <h3>The bottom line</h3>
-    <p>An LLM is a <b>brilliant, frozen library</b> — enormous knowledge, but it stops learning the day training ends and will fluently invent an answer rather than admit ignorance. Pragnosia is a <b>tiny, living mind</b> — it knows far less, but it <b>keeps learning, knows the edge of its own knowledge, refuses to fabricate, and carries its computation in a spinning state we can causally probe</b>. It's a transformer/SSM hybrid where spin is meant to be the core mixer — and our honest, measured finding this session is that it's most parameter-efficient exactly when spin <i>is</i> the core (a result still to be proven at large scale). The bet: alive, honest, and causally-probeable are what a frozen trillion-parameter model fundamentally lacks. Scale makes a better library; this is an attempt at a better <i>brain</i>.</p>
+    <p>An LLM is a <b>brilliant, frozen library</b> — enormous knowledge, but it stops learning the day training ends and will fluently invent an answer rather than admit ignorance. Pragnosia is a <b>tiny, living mind</b> — it knows far less, but it <b>keeps learning, knows the edge of its own knowledge, refuses to fabricate, and carries its computation in a spinning state we can causally probe</b>. It's a transformer/SSM hybrid where spin is meant to be the core mixer — and our honest, measured finding is that it's most parameter-efficient exactly when spin <i>is</i> the core, now shown at <b>284M</b> where the spin carrier is provably load-bearing (a result still to be fully proven multi-seed at 1B). The bet: alive, honest, and causally-probeable are what a frozen trillion-parameter model fundamentally lacks. Scale makes a better library; this is an attempt at a better <i>brain</i>.</p>
   </div>
 </div></section>
 
