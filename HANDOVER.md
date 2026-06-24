@@ -62,9 +62,12 @@ zeroing the spin carrier sends ppl 25 → 7716 (306×); zeroing attention sends 
 carrier is the **LOAD-BEARING CORE**, the decisive opposite of the 1.4B's vestigial 0.028%. When BUILT
 spin-dominant, the carrier becomes the dominant computation at scale — exactly the intended design. Capability
 jumped vs the 27M: **arithmetic 3/3, knowledge 2/3, theory-of-mind 2/2** ("capital of France→Paris", "2+2→4",
-fluent stories); multi-step/counterfactual/causal still weak (next axis). The brain.py chat honesty gate is
-**over-conservative on the question-form** (abstains on some knowables; correct on the unknowables) — a
-calibration follow-up. The 284M is synced to the laptop as `pragnosia_spin.pt` (config d=768). (The classic
+fluent stories); multi-step/counterfactual/causal still weak (next axis). **Honesty gate (open problem):** interact() now asks
+in the trained `<user>..<assistant>` format (bare questions were OOD → it over-abstained), but
+**consistency-voting can't separate knowledge from confabulation at 284M** — known "capital of France" 0.53
+vs unknown "password" 0.53 / "2031 election" 0.67 (overlapping distributions, no threshold works); the model
+confabulates *consistently*. Reliable honesty needs scale (consistency sharpens at 1B+) or a redesigned
+confidence signal. The 284M is synced to the laptop as `pragnosia_spin.pt` (config d=768). (The classic
 brain-swap test needs cross-segment carried state, which only `single`/`per_block` thread; in `spin_dominant`
 the carrier is intra-block, so **ablation is the equivalent causal measure**.)
 
