@@ -13,7 +13,7 @@ import s6_hybrid as H
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 DEVICE = H.DEVICE
-CFG = json.load(open("pragnosia.json"))
+CFG = json.load(open(os.environ.get("CONFIG", "pragnosia.json")))   # CONFIG=pragnosia_baseline.json for the carrier=none baseline
 H.VOC, H.L = CFG["vocab"], CFG["ctx"]
 VOC = CFG["vocab"]
 MEM_STOP_GB = 2.0      # background safety floor: if free GPU VRAM drops to/below this,

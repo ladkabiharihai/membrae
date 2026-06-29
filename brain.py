@@ -498,7 +498,7 @@ class Brain(nn.Module):
     def _deliberate(self, question):
         """DELIBERATION -- reason step-by-step on a scratchpad (its own generation) before
         answering, instead of a single-shot guess; the reasoning can draw on the subconscious."""
-        return self.generate_text(f"{question} Let's think step by step.", n=60, recall=True)
+        return self.generate_text(f"<user> {question} Let's think step by step. <assistant>", n=80, recall=True)
 
     def think_aloud(self, seed=None, steps=4):
         """AUTONOMOUS INTERNAL MONOLOGUE -- a self-driven train of thought. It takes a topic (its
@@ -542,9 +542,18 @@ class Brain(nn.Module):
             return {"monologue": self.think_aloud(steps=4)} if self.learn else {"answer": "(I'm listening.)"}
         if text.endswith("?"):
             chat = f"<user> {text} <assistant>"             # ask in the format the model was TRAINED on --
+            # computational / multi-step questions: direct greedy fails them (0/5) but DELIBERATION (CoT)
+            # works (~4/5) -- so route them through step-by-step reasoning first.
+            hard = any(c.isdigit() for c in text) or any(w in text.lower()
+                       for w in ("how many", "how much", "calculate", " total", " each", "step by step"))
+            if hard:
+                reasoned = self._deliberate(text)
+                if reasoned.strip():
+                    return {"answer": reasoned[:240], "deliberated": True}
             cons, ans = self._self_consistency(chat)        # a bare question is out-of-distribution and the
             if cons >= self.consistency_min:                # honesty gate then over-abstains on what it knows
-                return {"answer": ans[:200]}
+                return {"answer": ans[:200]}                # (consistency is the best signal we have at 284M --
+                #   no signal cleanly separates knowledge from confident confabulation at this scale; scale-limited)
             if not self.learn:                              # inference-only: just be honest
                 return {"answer": "I don't know."}
             reasoned = self._deliberate(text)               # not directly sure -> DELIBERATE before giving up
@@ -640,8 +649,8 @@ class Brain(nn.Module):
         prev_ckpt = getattr(self.lm, "grad_checkpoint", False)  # gradient checkpointing so teach fits in VRAM
         if big: self.lm.grad_checkpoint = True                 #   (recompute activations in backward)
         with torch.no_grad():
-            for _ in range(3):
-                xa, _ = H.batch(self._replay, ab)
+            for _ in range(8 if big else 3):                   # more self-rehearsal coverage protects more
+                xa, _ = H.batch(self._replay, ab)              # neighbours from a strongly-taught similar fact
                 anchors.append((xa, self.lm(xa).argmax(-1)))   # its own current self
         opt = torch.optim.AdamW(self.lm.parameters(), lr=lr_eff)
         self.lm.train(); used = 0
@@ -651,7 +660,8 @@ class Brain(nn.Module):
             lr_ = F.cross_entropy(self.lm(xr).reshape(-1, H.VOC), yr.reshape(-1))
             xa, ta = anchors[step % len(anchors)]              # self-consolidation anchor
             la = F.cross_entropy(self.lm(xa).reshape(-1, H.VOC), ta.reshape(-1))
-            opt.zero_grad(); (lf + 1.5 * lr_ + la).backward()  # weight true replay a bit higher
+            opt.zero_grad()                                    # weight replay+anchor higher for big models
+            (lf + (2.5 if big else 1.5) * lr_ + (1.5 if big else 1.0) * la).backward()
             torch.nn.utils.clip_grad_norm_(self.lm.parameters(), 1.0); opt.step()
             used = step
             if step % 2 == 0:                                        # check often -> less overshoot
