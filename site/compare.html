@@ -110,7 +110,7 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
         <li><b>Spins</b>  a transformer/SSM hybrid (à la Mamba/RWKV) where a diagonal-complex rotational recurrence (a parallel associative scan) is the <i>core token-mixer</i>, carrying state in its <i>phase</i>.</li>
         <li><b>Continual.</b> Learns new facts online and remembers them across sessions  no retraining.</li>
         <li><b>Knowledge can be taught and recalled</b> on the fly, with surprise-modulated plasticity.</li>
-        <li><b>It abstains on the clearly-unknowable</b>  it abstains (“I don't know”) from its own uncertainty — though at 284M this signal is scale-limited, <i>not</i> solved.</li>
+        <li><b>It abstains on the clearly-unknowable</b>  it abstains (“I don't know”) from its own uncertainty  though at 284M this signal is scale-limited, <i>not</i> solved.</li>
         <li><b>Parameter-efficient when spin is the core</b>: a param-matched test shows the spin-dominant design beats an attention-only baseline by ~21%, and at <b>284M</b> the spin carrier is provably the load-bearing core (ablate it → perplexity 306× worse vs 3.4× for attention)  single-seed and not yet at 1B, but a properly-controlled at-scale signal.</li>
       </ul></div>
   </div>
@@ -164,7 +164,7 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
 <section><div class="wrap reveal">
   <div class="bottom">
     <h3>The bottom line</h3>
-    <p>An LLM is a <b>brilliant, frozen library</b>  enormous knowledge, but it stops learning the day training ends and will fluently invent an answer rather than admit ignorance. Pragnosia is a <b>tiny, living mind</b>  it knows far less, but it <b>keeps learning across sessions, tries to abstain at the edge of its knowledge (imperfectly), and carries its computation in a spinning state we can causally probe</b>. It's a transformer/SSM hybrid where spin is meant to be the core mixer  and our honest, measured finding is that it's most parameter-efficient exactly when spin <i>is</i> the core, now shown at <b>284M</b> where the spin carrier is provably load-bearing (a result still to be fully proven multi-seed at 1B). The bet: alive, honest, and causally-probeable are what a frozen trillion-parameter model fundamentally lacks. Scale makes a better library; this is an attempt at a better <i>brain</i>.</p>
+    <p>An LLM is a <b>brilliant, frozen library</b>  enormous knowledge, but it stops learning the day training ends and will fluently invent an answer rather than admit ignorance. Pragnosia is a <b>tiny, persistent continual learner</b>  it knows far less, but it <b>keeps learning across sessions, tries to abstain at the edge of its knowledge (imperfectly), and carries its computation in a spinning state we can causally probe</b>. It's a transformer/SSM hybrid where spin is meant to be the core mixer  and our honest, measured finding is that it's most parameter-efficient exactly when spin <i>is</i> the core, now shown at <b>284M</b> where the spin carrier is provably load-bearing (a result still to be fully proven multi-seed at 1B). The bet: alive, honest, and causally-probeable are what a frozen trillion-parameter model fundamentally lacks. Scale makes a better library; this is an attempt at a better <i>brain</i>.</p>
   </div>
 </div></section>
 
