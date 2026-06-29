@@ -24,7 +24,10 @@ def autotune():
     """Pick batch / grad-accum / precision / compile from the actual GPU."""
     if DEVICE != "cuda":
         return dict(bs=4, accum=4, bf16=False, compile=False, gpu="cpu", vram=0)
-    p = torch.cuda.get_device_properties(0); vram = p.total_memory / 2**30
+    p = torch.cuda.get_device_properties(0); total = p.total_memory / 2**30
+    cap = float(os.environ.get("VRAM_CAP", "0"))      # shared GPU: VRAM_CAP=16 -> size to (and hard-cap at) the
+    vram = min(total, cap) if cap > 0 else total      # FREE memory, not the card's total (else autotune OOMs prod)
+    if cap > 0: torch.cuda.set_per_process_memory_fraction(min(1.0, cap / total))   # never touch co-resident jobs
     bf16 = torch.cuda.is_bf16_supported()
     # micro-batch that fits, scaled to VRAM (measured: 176M ~ bs8 @ 8GB)
     bs = max(4, int(vram // 1.0))                 # ~1 GB per micro-batch unit
@@ -104,7 +107,7 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     #   GPU to ~weights+grads+tiny-acts (~6-7GB); PagedAdamW8bit holds the optimizer state in
     #   8-bit and AUTO-PAGES it to CPU RAM, so the 11.5GB AdamW state never sits on the GPU.
     #   Same params, no LoRA -- just memory-relocated. Auto-on for big-model/small-GPU; LAPTOP=1 forces.
-    lowmem = os.environ.get("LAPTOP", "0") == "1" or (DEVICE == "cuda" and p > 7e8 and cfg["vram"] < 16)
+    lowmem = os.environ.get("LAPTOP", "0") == "1" or (DEVICE == "cuda" and p > 7e8 and cfg["vram"] <= 16)
     bnb = None
     if lowmem:
         import bitsandbytes as bnb
