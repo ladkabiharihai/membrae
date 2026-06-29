@@ -144,6 +144,18 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
     <span class="kicker">A new kind of AI brain</span>
     <h1>Most AI <span style="color:var(--dim)">settles.</span><br>This one <span class="g">spins.</span></h1>
     <p class="sub">Pragnosia is a small "spinning brain" whose core token-mixer is a bank of damped oscillators  it carries information not in a settled vector but in the <i>phase</i> of its motion. It's a transformer/SSM hybrid where, built correctly, that spinning carrier does the real work  and it keeps learning after training.</p>
+    <style>
+      .herostats{display:flex;gap:26px;margin-top:32px;flex-wrap:wrap}
+      .herostats div{flex:1;min-width:148px}
+      .herostats b{display:block;font-family:Fraunces,serif;font-size:34px;font-weight:900;line-height:1;background:linear-gradient(120deg,var(--c2),var(--c1));-webkit-background-clip:text;background-clip:text;color:transparent}
+      .herostats b small{font-size:17px;color:var(--mut);-webkit-text-fill-color:var(--mut)}
+      .herostats span{display:block;font-size:12.5px;color:var(--mut);margin-top:6px;line-height:1.4}
+    </style>
+    <div class="herostats">
+      <div><b>306×</b><span>perplexity jump when the spin carrier is ablated — vs 3.4× for attention</span></div>
+      <div><b>24.54</b><span>val perplexity, 284M spin-dominant model</span></div>
+      <div><b>219<small> vs 279</small></b><span>spin-dominant vs attention-only, at matched parameters</span></div>
+    </div>
   </div>
   <div class="scroll-hint">scroll to see how it works ↓</div>
 </header>
@@ -270,7 +282,7 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
   <!-- animated data pulse rising along the spine -->
   <circle r="9" fill="url(#pg)" cx="285"><animate attributeName="cy" values="600;80" dur="4.4s" repeatCount="indefinite"/><animate attributeName="opacity" values="0;.95;.95;0" keyTimes="0;.1;.9;1" dur="4.4s" repeatCount="indefinite"/></circle>
 </svg>
-    <figcaption><b>The Pragnosia decoder stack — spin-dominant.</b> Like a Transformer decoder, but the token-mixer is the <b>Spin Carrier</b> (a diagonal-complex LRU run as a parallel scan) in 3 of every 4 layers; a Masked Multi-Head Attention block is the helper every 4th. Each sub-layer has a residual + Add &amp; Norm; the block repeats N× (here 20 layers = 15 spin, 5 attention). The green pulse traces the data flow, embeddings → softmax.</figcaption>
+    <figcaption><b>The Pragnosia decoder stack  spin-dominant.</b> Like a Transformer decoder, but the token-mixer is the <b>Spin Carrier</b> (a diagonal-complex LRU run as a parallel scan) in 3 of every 4 layers; a Masked Multi-Head Attention block is the helper every 4th. Each sub-layer has a residual + Add &amp; Norm; the block repeats N× (here 20 layers = 15 spin, 5 attention). The green pulse traces the data flow, embeddings → softmax.</figcaption>
   </figure>
 
   <div class="arch">
