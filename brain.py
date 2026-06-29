@@ -634,15 +634,20 @@ class Brain(nn.Module):
         # knowledge so the new fact cannot overwrite skills it already has -- like a
         # brain consolidating memory, not a fixed model overwriting weights.
         self.lm.eval(); anchors = []
+        big = (sum(p.numel() for p in self.lm.parameters()) > 1e8 and DEVICE == "cuda"
+               and torch.cuda.get_device_properties(0).total_memory / 2**30 < 16)
+        rb, ab = (2, 1) if big else (8, 4)                     # big model on a small GPU: tiny batches +
+        prev_ckpt = getattr(self.lm, "grad_checkpoint", False)  # gradient checkpointing so teach fits in VRAM
+        if big: self.lm.grad_checkpoint = True                 #   (recompute activations in backward)
         with torch.no_grad():
             for _ in range(3):
-                xa, _ = H.batch(self._replay, 4)
+                xa, _ = H.batch(self._replay, ab)
                 anchors.append((xa, self.lm(xa).argmax(-1)))   # its own current self
         opt = torch.optim.AdamW(self.lm.parameters(), lr=lr_eff)
         self.lm.train(); used = 0
         for step in range(1, max_steps + 1):
             lf = F.cross_entropy(self.lm(fact_ids[:, :-1]).reshape(-1, H.VOC), fact_ids[:, 1:].reshape(-1))
-            xr, yr = H.batch(self._replay, 8)                  # true-corpus replay
+            xr, yr = H.batch(self._replay, rb)                 # true-corpus replay
             lr_ = F.cross_entropy(self.lm(xr).reshape(-1, H.VOC), yr.reshape(-1))
             xa, ta = anchors[step % len(anchors)]              # self-consolidation anchor
             la = F.cross_entropy(self.lm(xa).reshape(-1, H.VOC), ta.reshape(-1))
@@ -654,6 +659,7 @@ class Brain(nn.Module):
                 if self._nll(fact) < target: self.lm.train(); break
                 self.lm.train()
         self.lm.eval()
+        if big: self.lm.grad_checkpoint = prev_ckpt           # restore inference-mode (no checkpointing)
         # SATURATION signal: if it ran the full budget and STILL can't drive the fact
         # below its own bar, it's struggling to fit new knowledge -> count it. Enough
         # consecutive struggles and _maybe_grow() adds capacity (the brain grows itself).
