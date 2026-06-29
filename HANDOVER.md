@@ -76,9 +76,18 @@ hard questions through `_deliberate` is the right design. **(2) Continual learni
 tension.** `teach()` is now OOM-safe on the 284M (grad-checkpoint + micro-batch); it learns a new fact (recall=YES)
 and keeps general skills (stories stay coherent), but an *aggressive* teach interferes with close neighbours (teaching
 "Zubland→Maretto" nudged "France→Maretto"), while a *gentle* teach is safe but under-learns — and episodic recall
-doesn't yet compensate. Reliable single-fact editing is an open follow-up (targeted replay / stronger episodic recall / EWC). (The classic
-brain-swap test needs cross-segment carried state, which only `single`/`per_block` thread; in `spin_dominant`
-the carrier is intra-block, so **ablation is the equivalent causal measure**.)
+doesn't yet compensate. Reliable single-fact editing is an open follow-up (targeted replay / stronger episodic recall / EWC).
+**(3) Deliberation is now wired in** — `interact()` routes computational/multi-step questions through the `<user>..<assistant>`
+CoT path by default. **(4) Honesty is a confirmed scale-limit** — consistency, entropy, greedy-confidence, and novelty
+were all tested and NONE separates knowledge from confident confabulation at 284M (known and unknowable overlap on every
+signal); no veto shipped. (The classic brain-swap test needs cross-segment carried state, which only `single`/`per_block`
+thread; in `spin_dominant` the carrier is intra-block, so **ablation is the equivalent causal measure**.)
+
+**🎯 H100 baseline is PREPPED (just run it).** The decisive test — does spin-dominant *win* vs a transformer? — is ready:
+`pragnosia_baseline.json` is `carrier="none"`, d768/20L/mlp9, **param-matched to the 284M within 3.1%**. The trainer now
+takes a `CONFIG` env. On the H100, train it to the **same token budget** the 284M saw (step 418K), then compare val ppl:
+`CONFIG=pragnosia_baseline.json BEST_CKPT=pragnosia_baseline_best.pt python3 train_pragnosia.py --steps 418000 --lr 0`
+(use `run_fast.py` for compile). Spin-dominant won by ~21% at 37M; this confirms it at 284M.
 
 **Speed:** spin-dominant is *slower* at ctx=256 (the scan does more than attention on short sequences; it
 can't be in-place-optimized — that breaks autograd). Its advantage is **long context** (O(T) vs attention
