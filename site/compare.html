@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pragnosia vs. today's LLMs — an honest comparison</title>
+<title>Pragnosia vs. today's LLMs  an honest comparison</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -89,7 +89,7 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
 <header><div class="wrap">
   <span class="kicker">Honest comparison</span>
   <h1>Pragnosia <span class="g">vs.</span> today's LLMs</h1>
-  <p class="lead">A spinning brain and a GPT-style model are built on opposite bets. Here is exactly where each one wins — and where each one loses. No spin (well… some spin).</p>
+  <p class="lead">A spinning brain and a GPT-style model are built on opposite bets. Here is exactly where each one wins  and where each one loses. No spin (well… some spin).</p>
 </div></header>
 
 <!-- core difference -->
@@ -99,19 +99,19 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
   <div class="vs">
     <div class="vcard llm"><div class="t">Today's LLMs</div><h3>Predict the next word, at huge scale</h3>
       <ul>
-        <li><b>Settle</b> on a representation in one forward pass — attention looks up patterns.</li>
+        <li><b>Settle</b> on a representation in one forward pass  attention looks up patterns.</li>
         <li><b>Frozen after training.</b> Learning new facts means fine-tuning or stuffing them into the prompt.</li>
-        <li><b>Knowledge lives in billions of weights</b> — vast, but fixed and hard to inspect.</li>
-        <li><b>Confidence is bolted on</b> — they often state wrong things fluently.</li>
+        <li><b>Knowledge lives in billions of weights</b>  vast, but fixed and hard to inspect.</li>
+        <li><b>Confidence is bolted on</b>  they often state wrong things fluently.</li>
         <li><b>Power from scale</b>: trillions of tokens, billions–trillions of parameters.</li>
       </ul></div>
     <div class="vcard prg"><div class="t">Pragnosia</div><h3>Spin as the core mixer, and keep living</h3>
       <ul>
-        <li><b>Spins</b> — a transformer/SSM hybrid (à la Mamba/RWKV) where a diagonal-complex rotational recurrence (a parallel associative scan) is the <i>core token-mixer</i>, carrying state in its <i>phase</i>.</li>
-        <li><b>Alive.</b> Learns new facts online, forever, and remembers across sessions — no retraining.</li>
+        <li><b>Spins</b>  a transformer/SSM hybrid (à la Mamba/RWKV) where a diagonal-complex rotational recurrence (a parallel associative scan) is the <i>core token-mixer</i>, carrying state in its <i>phase</i>.</li>
+        <li><b>Continual.</b> Learns new facts online and remembers them across sessions  no retraining.</li>
         <li><b>Knowledge can be taught and recalled</b> on the fly, with surprise-modulated plasticity.</li>
-        <li><b>Confidence is intrinsic</b> — it abstains (“I don't know”) from its own uncertainty.</li>
-        <li><b>Parameter-efficient when spin is the core</b>: a param-matched test shows the spin-dominant design beats an attention-only baseline by ~21%, and at <b>284M</b> the spin carrier is provably the load-bearing core (ablate it → perplexity 306× worse vs 3.4× for attention) — single-seed and not yet at 1B, but a properly-controlled at-scale signal.</li>
+        <li><b>It abstains on the clearly-unknowable</b>  it abstains (“I don't know”) from its own uncertainty — though at 284M this signal is scale-limited, <i>not</i> solved.</li>
+        <li><b>Parameter-efficient when spin is the core</b>: a param-matched test shows the spin-dominant design beats an attention-only baseline by ~21%, and at <b>284M</b> the spin carrier is provably the load-bearing core (ablate it → perplexity 306× worse vs 3.4× for attention)  single-seed and not yet at 1B, but a properly-controlled at-scale signal.</li>
       </ul></div>
   </div>
 </div></section>
@@ -122,17 +122,17 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
   <h2>Side by side</h2>
   <div class="tbl">
     <div class="row head"><div>Capability</div><div>Today's LLMs</div><div>Pragnosia</div></div>
-    <div class="row"><div class="feat">Fluent language</div><div class="llmcol"><span class="yes">Strong</span> — document-level</div><div class="prgcol"><span class="part">Decent</span> — sentence-level (small)</div></div>
+    <div class="row"><div class="feat">Fluent language</div><div class="llmcol"><span class="yes">Strong</span>  document-level</div><div class="prgcol"><span class="part">Decent</span>  sentence-level (small)</div></div>
     <div class="row"><div class="feat">World knowledge</div><div class="llmcol"><span class="yes">Vast</span></div><div class="prgcol"><span class="part">Limited</span> (small + undertrained for size)</div></div>
     <div class="row"><div class="feat">Reasoning depth</div><div class="llmcol"><span class="yes">Strong</span> (math, code, logic)</div><div class="prgcol"><span class="part">Shallow</span> but real & causal</div></div>
-    <div class="row"><div class="feat">Causal-intervention method</div><div class="llmcol"><span class="no">None standard</span></div><div class="prgcol"><span class="yes">Carrier ablation</span> — zero the carrier, measure the cost (306× at 284M)</div></div>
-    <div class="row"><div class="feat">Knows what it doesn't know</div><div class="llmcol"><span class="part">Partial</span>, bolted on</div><div class="prgcol"><span class="yes">Built-in</span> — abstains</div></div>
-    <div class="row"><div class="feat">Learn after training (no retrain)</div><div class="llmcol"><span class="no">No</span> — frozen</div><div class="prgcol"><span class="yes">Yes</span> — continuous, persistent</div></div>
-    <div class="row"><div class="feat">Forgetting when updated</div><div class="llmcol"><span class="no">Catastrophic</span></div><div class="prgcol"><span class="yes">Low</span> — replay + plasticity</div></div>
+    <div class="row"><div class="feat">Causal-intervention method</div><div class="llmcol"><span class="no">None standard</span></div><div class="prgcol"><span class="yes">Carrier ablation</span>  zero the carrier, measure the cost (306× at 284M)</div></div>
+    <div class="row"><div class="feat">Abstains (signal scale-limited)</div><div class="llmcol"><span class="part">Partial</span>, bolted on</div><div class="prgcol"><span class="part">Partial</span>  abstains, not solved</div></div>
+    <div class="row"><div class="feat">Learn after training (no retrain)</div><div class="llmcol"><span class="no">No</span>  frozen</div><div class="prgcol"><span class="yes">Yes</span>  continuous, persistent</div></div>
+    <div class="row"><div class="feat">Forgetting when updated</div><div class="llmcol"><span class="no">Catastrophic</span></div><div class="prgcol"><span class="yes">Low</span>  replay + plasticity</div></div>
     <div class="row"><div class="feat">Self-paced learning rate</div><div class="llmcol"><span class="no">Fixed schedule</span></div><div class="prgcol"><span class="yes">Surprise-modulated</span> (brain-like)</div></div>
     <div class="row"><div class="feat">Knows itself</div><div class="llmcol"><span class="part">Scripted</span></div><div class="prgcol"><span class="yes">From its own weights</span></div></div>
     <div class="row"><div class="feat">Size / cost</div><div class="llmcol"><span class="no">Huge</span> (data-center)</div><div class="prgcol"><span class="yes">Tiny</span> (one laptop)</div></div>
-    <div class="row"><div class="feat">Hardcoded behavior</div><div class="llmcol">—</div><div class="prgcol"><span class="yes">None</span> — all self-derived</div></div>
+    <div class="row"><div class="feat">Hardcoded behavior</div><div class="llmcol"></div><div class="prgcol"><span class="yes">None</span>  all self-derived</div></div>
   </div>
 </div></section>
 
@@ -142,20 +142,20 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
   <h2>Pros &amp; cons of the spinning approach</h2>
   <div class="pc">
     <div class="col pros"><h3>Where Pragnosia wins</h3><ul>
-      <li><b>Genuinely alive</b> — learns and remembers forever without retraining or forgetting. Even frontier LLMs can't do this.</li>
-      <li><b>Honest by design</b> — says “I don't know” from its own uncertainty instead of confidently bluffing.</li>
-      <li><b>A rigorous causal probe</b> — we measure whether the carrier is actually used: a carried-state transplant on single-carrier models (which caught the 1.4B side-channel drift below) and direct ablation on the spin-dominant design (which showed the 284M carrier is load-bearing, 306×).</li>
-      <li><b>Tiny &amp; cheap</b> — runs and trains on a single laptop GPU; ~700 MB on disk.</li>
-      <li><b>Brain-like learning</b> — surprise-modulated plasticity: learns hard on the new, gently on the familiar.</li>
-      <li><b>Nothing hardcoded</b> — what matters, when to abstain, what to recall: all derived from data, re-tuned as it grows.</li>
+      <li><b>Continual learning</b>  learns and persists new facts across sessions without full retraining; general skills are retained (specific-fact editing still has a stability–plasticity tension).</li>
+      <li><b>Abstains, honestly</b>  says “I don't know” on the clearly-unknowable; it does <i>not</i> yet catch confident-but-wrong facts (honesty is an open problem at this scale).</li>
+      <li><b>A rigorous causal probe</b>  we measure whether the carrier is actually used: a carried-state transplant on single-carrier models (which caught the 1.4B side-channel drift below) and direct ablation on the spin-dominant design (which showed the 284M carrier is load-bearing, 306×).</li>
+      <li><b>Tiny &amp; cheap</b>  runs and trains on a single laptop GPU; ~700 MB on disk.</li>
+      <li><b>Brain-like learning</b>  surprise-modulated plasticity: learns hard on the new, gently on the familiar.</li>
+      <li><b>Nothing hardcoded</b>  what matters, when to abstain, what to recall: all derived from data, re-tuned as it grows.</li>
     </ul></div>
     <div class="col cons"><h3>Where it loses (for now)</h3><ul>
-      <li><b>The scaled 1.4B was built backwards</b> — growth diluted the single spin carrier to 0.37% of the parameters, so it's effectively an attention transformer with a vestigial spin side-channel (causal signal just 0.028% of the loss). The fix — making spin the core mixer — wins ~21% at matched params and is now validated at <b>284M</b> (carrier load-bearing: 306× ablation cost), but is still single-seed and not yet at 1B.</li>
-      <li><b>Weak multi-hop composition</b> — undertrained for its grown size; relational analogy, multi-step deduction and systematic generalization still lag. More tokens, not more parameters, is the lever.</li>
+      <li><b>The scaled 1.4B was built backwards</b>  growth diluted the single spin carrier to 0.37% of the parameters, so it's effectively an attention transformer with a vestigial spin side-channel (causal signal just 0.028% of the loss). The fix  making spin the core mixer  wins ~21% at matched params and is now validated at <b>284M</b> (carrier load-bearing: 306× ablation cost), but is still single-seed and not yet at 1B.</li>
+      <li><b>Weak multi-hop composition</b>  undertrained for its grown size; relational analogy, multi-step deduction and systematic generalization still lag. More tokens, not more parameters, is the lever.</li>
       <li><b>Can be confidently wrong</b> on familiar-but-incorrect facts (the same failure as big LLMs).</li>
-      <li><b>Continual learning has a stability–plasticity tension</b> — teaching a fact hard enough to recall it can interfere with close neighbours (teaching a made-up capital nudged a real country's capital); teaching gently avoids that but under-learns. General skills are retained (no broad forgetting), but reliable single-fact editing isn't solved yet.</li>
-      <li><b>Not a finished product</b> — it's a research substrate proving mechanisms, not a polished assistant.</li>
-      <li><b>Emergence is early, not broad</b> — at the new 284M spin-dominant scale, arithmetic (3/3), world-knowledge (2/3) and theory-of-mind (2/2) genuinely emerged (up from faint seeds at 27M), but multi-step, counterfactual and causal reasoning are still 0/2 — the next axis. And the honesty gate is <i>not solved</i>: consistency-voting can't separate knowledge from confident confabulation at 284M (a known fact and an unknowable score the same) — it needs scale or a redesigned signal.</li>
+      <li><b>Continual learning has a stability–plasticity tension</b>  teaching a fact hard enough to recall it can interfere with close neighbours (teaching a made-up capital nudged a real country's capital); teaching gently avoids that but under-learns. General skills are retained (no broad forgetting), but reliable single-fact editing isn't solved yet.</li>
+      <li><b>Not a finished product</b>  it's a research substrate proving mechanisms, not a polished assistant.</li>
+      <li><b>Emergence is early, not broad</b>  at the new 284M spin-dominant scale, arithmetic (3/3), world-knowledge (2/3) and theory-of-mind (2/2) genuinely emerged (up from faint seeds at 27M), but multi-step, counterfactual and causal reasoning are still 0/2  the next axis. And the honesty gate is <i>not solved</i>: consistency-voting can't separate knowledge from confident confabulation at 284M (a known fact and an unknowable score the same)  it needs scale or a redesigned signal.</li>
     </ul></div>
   </div>
 </div></section>
@@ -164,11 +164,11 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
 <section><div class="wrap reveal">
   <div class="bottom">
     <h3>The bottom line</h3>
-    <p>An LLM is a <b>brilliant, frozen library</b> — enormous knowledge, but it stops learning the day training ends and will fluently invent an answer rather than admit ignorance. Pragnosia is a <b>tiny, living mind</b> — it knows far less, but it <b>keeps learning, knows the edge of its own knowledge, refuses to fabricate, and carries its computation in a spinning state we can causally probe</b>. It's a transformer/SSM hybrid where spin is meant to be the core mixer — and our honest, measured finding is that it's most parameter-efficient exactly when spin <i>is</i> the core, now shown at <b>284M</b> where the spin carrier is provably load-bearing (a result still to be fully proven multi-seed at 1B). The bet: alive, honest, and causally-probeable are what a frozen trillion-parameter model fundamentally lacks. Scale makes a better library; this is an attempt at a better <i>brain</i>.</p>
+    <p>An LLM is a <b>brilliant, frozen library</b>  enormous knowledge, but it stops learning the day training ends and will fluently invent an answer rather than admit ignorance. Pragnosia is a <b>tiny, living mind</b>  it knows far less, but it <b>keeps learning across sessions, tries to abstain at the edge of its knowledge (imperfectly), and carries its computation in a spinning state we can causally probe</b>. It's a transformer/SSM hybrid where spin is meant to be the core mixer  and our honest, measured finding is that it's most parameter-efficient exactly when spin <i>is</i> the core, now shown at <b>284M</b> where the spin carrier is provably load-bearing (a result still to be fully proven multi-seed at 1B). The bet: alive, honest, and causally-probeable are what a frozen trillion-parameter model fundamentally lacks. Scale makes a better library; this is an attempt at a better <i>brain</i>.</p>
   </div>
 </div></section>
 
-<footer>Every comparison here is grounded in measured results from the project — including the limitations. <a href="index.html">← back to the story</a></footer>
+<footer>Every comparison here is grounded in measured results from the project  including the limitations. <a href="index.html">← back to the story</a></footer>
 
 <script>
 const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)e.target.classList.add('in')}),{threshold:.12});

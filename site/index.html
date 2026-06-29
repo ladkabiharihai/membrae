@@ -176,10 +176,27 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
       <p>On the 284M spin-dominant model (val ppl ≈ 25), zeroing the spin carrier drives perplexity to <b>7716</b> (a 306× collapse); zeroing attention only takes it to <b>85</b> (3.4×). In the spin-dominant build the carrier lives <i>inside</i> each block, so there is no separable carried state to splice  <b>ablation, not a state-swap, is the causal measure here</b>. This is the exact inverse of the earlier 1.4B "wrong build," where a single bolted-on carrier contributed just 0.028% of the loss  vestigial.</p>
     </details>
   </div>
-  <div class="card" style="margin-top:36px;max-width:760px"><h3>Watch the ablation</h3>
-    <div class="cap">turn each component off and watch perplexity (lower is better)</div>
-    <canvas id="swapC" style="height:230px"></canvas>
-    <div class="verdict good" id="swapVerdict">remove the spin carrier → 306× worse · remove attention → 3.4× → spin is the core</div>
+  <style>
+    .abl-row{display:flex;gap:12px;margin:4px 0 16px;flex-wrap:wrap}
+    .abl-tog{flex:1;min-width:160px;padding:13px;border-radius:12px;border:1.5px solid var(--c2);
+      background:rgba(35,213,171,.1);color:var(--c2);font-weight:700;font-size:14px;cursor:pointer;font-family:Inter,sans-serif;transition:.25s}
+    .abl-tog.off{border-color:#ff8a8a;background:rgba(255,138,138,.12);color:#ff8a8a}
+    .abl-meter{position:relative;height:48px;border-radius:12px;background:rgba(0,0,0,.3);overflow:hidden;border:1px solid var(--line)}
+    .abl-fill{position:absolute;left:0;top:0;bottom:0;width:8%;background:linear-gradient(90deg,var(--c2),var(--c1));
+      transition:width .65s cubic-bezier(.4,0,.2,1),background .4s}
+    .abl-fill.hot{background:linear-gradient(90deg,#ffd166,#ff5c5c)}
+    .abl-num{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-family:'JetBrains Mono';
+      font-weight:700;font-size:19px;color:var(--ink);text-shadow:0 0 8px rgba(0,0,0,.7)}
+    .abl-meter .abl-base{position:absolute;left:8%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.3)}
+  </style>
+  <div class="card" id="ablCard" style="margin-top:36px;max-width:760px"><h3>Try it: ablate the model</h3>
+    <div class="cap">switch each component off and watch validation perplexity (lower is better; log scale)</div>
+    <div class="abl-row">
+      <button class="abl-tog on" data-k="spin">Spin carrier &mdash; ON</button>
+      <button class="abl-tog on" data-k="attn">Attention &mdash; ON</button>
+    </div>
+    <div class="abl-meter"><div class="abl-fill" id="ablFill"></div><div class="abl-base"></div><div class="abl-num" id="ablNum">25</div></div>
+    <div class="verdict good" id="ablVerd">baseline &mdash; both on (ppl 25). Now switch the spin carrier off&hellip;</div>
   </div>
 </div></section>
 
@@ -204,7 +221,7 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
 <section style="background:var(--bg2)"><div class="wrap reveal">
   <div class="tag">The “alive” part</div>
   <h2>It learns while you talk to it</h2>
-  <p class="lead">No retraining. You tell it something new, it decides on its own that it's worth learning, and it remembers  forever.</p>
+  <p class="lead">No retraining. You tell it something new, it decides on its own that it's worth learning, and it persists it across sessions.</p>
   <div class="teach" id="teach">
     <div class="chat-line" data-d="0"><div class="who">you</div><div class="msg you">The capital of Mongolia is Ulaanbaatar.</div></div>
     <div class="chat-line" data-d="1"><div class="who">brain</div><div class="msg">That's new to me  I've learned it.<span class="note">[decided: learn · surprise 7.4 &gt; familiar 5.7 → learns harder]</span></div></div>
@@ -388,27 +405,30 @@ requestAnimationFrame(l)})()}
 orbit('settleC',true);orbit('spinC',false);
 
 /* ---------- brain swap ---------- */
-(function(){const c=document.getElementById('swapC'),x=c.getContext('2d');
-function rs(){c.width=c.clientWidth*2;c.height=c.clientHeight*2;x.scale(2,2)}rs();
-let t=0,W=c.clientWidth,H=c.clientHeight;
-(function l(){t++;x.clearRect(0,0,W,H);const phase=(t%420);
-const yA=H*.34,yB=H*.7;
-// two lanes
-[['A','#7c5cff',yA],['B','#ff7ac2',yB]].forEach(([n,col,y])=>{x.strokeStyle='rgba(255,255,255,.07)';x.beginPath();x.moveTo(40,y);x.lineTo(W-20,y);x.stroke();
-x.fillStyle=col;x.font='12px JetBrains Mono';x.fillText('thought '+n,8,y-14)});
-const swapX=W*.5;
-// moving dots
-function dot(y,col,ph){const px=40+((t*1.6+ph)%(W-60));x.fillStyle=col;x.beginPath();x.arc(px,y,5,0,6.3);x.fill();return px}
-// splice arrow at swapX
-x.strokeStyle='rgba(255,209,102,.7)';x.setLineDash([5,5]);x.beginPath();x.moveTo(swapX,yA);x.lineTo(swapX,yB);x.stroke();x.setLineDash([]);
-x.fillStyle='#ffd166';x.font='11px JetBrains Mono';x.fillText('✂ splice B → A here',swapX-50,H*.52);
-const pa=dot(yA,'#7c5cff',0);
-// A after splice takes B color/answer
-if(pa>swapX){x.fillStyle='#ff7ac2';x.beginPath();x.arc(pa,yA,7,0,6.3);x.fill();x.strokeStyle='#ffd166';x.lineWidth=2;x.stroke()}
-dot(yB,'#ff7ac2',120);
-x.fillStyle='rgba(255,255,255,.5)';x.font='11px JetBrains Mono';
-x.fillText('after the splice, thought A now ends with B\'s answer → 59% (chance 21%)',40,H-10);
-requestAnimationFrame(l)})()})();
+(function(){
+  var S={spin:true,attn:true};
+  var fill=document.getElementById('ablFill'),num=document.getElementById('ablNum'),verd=document.getElementById('ablVerd');
+  var L=Math.log(9000);
+  function render(){
+    var ppl,msg,good=true,hot=false;
+    if(S.spin&&S.attn){ppl=25;msg='baseline \u2014 both on (ppl 25). Now switch the spin carrier off\u2026';}
+    else if(!S.spin&&S.attn){ppl=7716;msg='spin carrier OFF \u2192 7716 ppl, 306\u00d7 worse. It was doing the computation.';good=false;hot=true;}
+    else if(S.spin&&!S.attn){ppl=85;msg='attention OFF \u2192 85 ppl, only 3.4\u00d7 worse. Attention is the minor helper.';good=false;}
+    else{ppl=null;msg='both OFF \u2014 no token mixing at all: immeasurable (\u226b 7716).';good=false;hot=true;}
+    var v=ppl==null?30000:ppl;
+    fill.style.width=Math.max(8,Math.min(100,Math.log(v)/L*100))+'%';
+    if(hot)fill.classList.add('hot');else fill.classList.remove('hot');
+    num.textContent=ppl==null?'\u221e':ppl.toLocaleString();
+    verd.textContent=msg; verd.className='verdict '+(good?'good':'bad');
+  }
+  var btns=document.querySelectorAll('#ablCard .abl-tog');
+  for(var i=0;i<btns.length;i++){(function(b){
+    b.onclick=function(){var k=b.dataset.k;S[k]=!S[k];
+      if(S[k]){b.classList.add('on');b.classList.remove('off');}else{b.classList.add('off');b.classList.remove('on');}
+      b.innerHTML=(k==='spin'?'Spin carrier':'Attention')+' \u2014 '+(S[k]?'ON':'OFF');render();};
+  })(btns[i]);}
+  render();
+})();
 
 /* ---------- teach replay ---------- */
 function playTeach(){const ls=document.querySelectorAll('#teach .chat-line');ls.forEach(l=>l.classList.remove('show'));
