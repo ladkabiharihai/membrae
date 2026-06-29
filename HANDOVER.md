@@ -67,7 +67,16 @@ in the trained `<user>..<assistant>` format (bare questions were OOD → it over
 **consistency-voting can't separate knowledge from confabulation at 284M** — known "capital of France" 0.53
 vs unknown "password" 0.53 / "2031 election" 0.67 (overlapping distributions, no threshold works); the model
 confabulates *consistently*. Reliable honesty needs scale (consistency sharpens at 1B+) or a redesigned
-confidence signal. The 284M is synced to the laptop as `pragnosia_spin.pt` (config d=768). (The classic
+confidence signal. The 284M is synced to the laptop as `pragnosia_spin.pt` (config d=768).
+
+**Latest 284M evals (laptop):** **(1) Deliberation works — the CoT corpus paid off.** On multi-step word problems
+the model is **0/5 greedy** but **~4/5 when prompted to deliberate** — it emits the `<think>` tag straight from the
+CoT training data and works through the steps (not always *correct*, but the reasoning *form* is there). So routing
+hard questions through `_deliberate` is the right design. **(2) Continual learning runs but has a stability–plasticity
+tension.** `teach()` is now OOM-safe on the 284M (grad-checkpoint + micro-batch); it learns a new fact (recall=YES)
+and keeps general skills (stories stay coherent), but an *aggressive* teach interferes with close neighbours (teaching
+"Zubland→Maretto" nudged "France→Maretto"), while a *gentle* teach is safe but under-learns — and episodic recall
+doesn't yet compensate. Reliable single-fact editing is an open follow-up (targeted replay / stronger episodic recall / EWC). (The classic
 brain-swap test needs cross-segment carried state, which only `single`/`per_block` thread; in `spin_dominant`
 the carrier is intra-block, so **ablation is the equivalent causal measure**.)
 
