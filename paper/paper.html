@@ -119,6 +119,17 @@ A &larr; { (x, argmax M(x)) : x ~ R } &nbsp;&nbsp;<span class="c"># snapshot M's
 <p>A greedy capability battery on the 284M shows a clear jump from a 27M laptop model (27M in parentheses): arithmetic <b>3/3</b> (0/3), knowledge <b>2/3</b> (0/3), logic <b>2/2</b>, theory-of-mind <b>2/2</b> (1/2), code 1/2, in-context binding 1/2; the still-weak axis is multi-step 0/2, counterfactual 0/2, causal 0/2. Sample generations: "The capital of France is → the city of Paris.", "2 + 2 = → 4.", "Once upon a time →, in a small town named Harmonyville, lived two best friends". World knowledge, single-step arithmetic, and theory-of-mind genuinely <i>emerged</i> at this scale; multi-step composition is the next axis.</p>
 <div class="key"><b>An honest negative on honesty.</b> The controller answers only when its sampled answers <i>agree</i> on a content token (real knowledge pins one answer; confabulation varies). Asked in the model's trained chat format this works for some facts, but at 284M the signal does <i>not</i> cleanly separate knowledge from confident confabulation: a known fact ("capital of France") and an unknowable ("my secret password", "who wins the 2031 election") score 0.53 / 0.53 / 0.67  overlapping. The model confabulates <i>consistently</i>. The gate errs toward "I don't know" rather than guessing; reliable honesty needs either scale (consistency sharpens with model size) or a different confidence signal. We do not claim the chat form is reliably honest.</div>
 
+<h3>Zero-shot public benchmarks.</h3>
+<p>For external comparability we evaluate the 284M model zero-shot on standard public sets. Because the model uses a custom 16K-token vocabulary, we report <i>word-normalized</i> perplexity (tokenizer-independent) and log-likelihood multiple-choice accuracy (also tokenizer-independent). The scores are honest and modest — above chance on most tasks, at chance on the hardest (ARC-Challenge) — the expected profile of a small model undertrained for its size; the evaluation harness (<span class="mono">eval_external.py</span>) is released.</p>
+<table><caption><b></b>Zero-shot public benchmarks (1,000-example subsamples; <span class="mono">acc_norm</span> = length-normalized log-likelihood; LAMBADA accuracy is on the first token of the final word).</caption>
+<tr><th>Benchmark</th><th class="n">Metric</th><th class="n">Pragnosia 284M</th><th class="n">Chance</th></tr>
+<tr><td>WikiText-2</td><td class="n">word ppl (lower better)</td><td class="n">157.9</td><td class="n">—</td></tr>
+<tr><td>LAMBADA</td><td class="n">accuracy</td><td class="n">19.0%</td><td class="n">—</td></tr>
+<tr><td>HellaSwag</td><td class="n">acc_norm</td><td class="n">27.9%</td><td class="n">25%</td></tr>
+<tr><td>ARC-Easy</td><td class="n">acc_norm</td><td class="n good">34.7%</td><td class="n">25%</td></tr>
+<tr><td>ARC-Challenge</td><td class="n">acc_norm</td><td class="n">24.0%</td><td class="n">25%</td></tr>
+<tr><td>PIQA</td><td class="n">accuracy</td><td class="n good">59.5%</td><td class="n">50%</td></tr>
+</table>
 <h2>Comparison with Large Language Models</h2>
 <table><caption><b></b>Where each paradigm wins. The two are built on opposite bets.</caption>
 <tr><th>Property</th><th>Today's LLMs</th><th>Pragnosia</th></tr>
