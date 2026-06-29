@@ -146,6 +146,7 @@ for the weak axis: strong single-step, weak multi-hop = undertraining-for-size).
 | `cot_build.sh` | Builds + appends the ~18B CoT corpus into window1/window2 |
 | `run_fast.py` | Compile wrapper (use on the H100 for the fused scan) |
 | `faculty_test.py` | LM faculty battery (CPU, read-only) |
+| `eval_external.py` | zero-shot public benchmarks (WikiText/LAMBADA/HellaSwag/ARC/PIQA), tokenizer-independent |
 | `ops.sh` | H100 ops: `status` / `resume` / `test` |
 | `pragnosia.json` | Active config (incl. `"carrier"`). `pragnosia.json.1p4B` = the 1.4B arch (for loading `pragnosia_best.pt`) |
 | `HANDOVER.md` / `RUNBOOK.md` / `TRAINING_NOTES.md` | This / how-to-run / the training story |
