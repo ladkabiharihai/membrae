@@ -102,6 +102,21 @@ VRAM_CAP=16 LONG_CTX_W=4 python3 train_pragnosia.py --resume --no-grow   # 4*256
   long context. Growth is auto-disabled in this mode (refining, not growing).
 - If the restored peak LR spikes the long-ctx ppl early, add `--lr 3e-4` for a gentler pass.
 
+**Continual mode (`LONG_MIX=1`) — grow AND learn long context, without forgetting:**
+```
+VRAM_CAP=16 LONG_CTX_W=32 LONG_MIX=1 VAL_EVERY=25 python3 train_pragnosia.py --resume
+```
+- Samples `W` per step from a **curriculum** (short→long over the first half of training) up to `LONG_CTX_W`,
+  instead of a fixed `W`. Short batches are always present, so short-context stays sharp and length
+  generalizes past the max trained `W`.
+- **Growth stays ON** (unlike fixed-W mode). The long objective is always in the mix (= replay), so a
+  function-preserving grow is followed by long-context rehearsal, not pure-short training — the carry is
+  never forgotten. The growth **probe runs at W=1** (cheap), so growth stays fast while the model climbs.
+- Validation prints **multiple lengths** each time, e.g. `[W1:.. W8:.. W32:..]` — watch long ppl drop
+  *without* short ppl regressing. This is the continual-learning-correct way to do grow + long-context.
+- Detached (default) keeps memory at one window for any `W`; on a big GPU (e.g. RTX PRO 6000), add
+  `LONG_BPTT=1` for the stronger write-side carry.
+
 ## STEP 3  Use it  (after training; this is the part you asked for)
 The brain decides everything itself; nothing is hardcoded.
 Talking to it IS how it works -- answering, learning, curiosity, looking things up and

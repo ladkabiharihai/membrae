@@ -24,6 +24,12 @@ LONG_W = int(os.environ.get("LONG_CTX_W", str(CFG.get("long_ctx_windows", 1))))
 # cross-window state, not just read it -- stronger long-context, but holds W windows' graph (uses
 # grad-checkpoint). Default 0 = detached TBPTT (per-window backward, memory bounded to one window).
 LONG_BPTT = os.environ.get("LONG_BPTT", "0") == "1"
+# LONG_MIX=1 -> CONTINUAL long-context: sample W per step from a curriculum (short->long over training)
+# instead of fixed LONG_W. Keeps short context sharp AND generalizes across lengths, AND lets the model
+# GROW while training long: the long objective stays in the mix (= replay), so a function-preserving grow
+# is never followed by pure-short training that would erode the carry. The growth PROBE still runs at W=1
+# (cheap). Default 0 = fixed-W long-context (refine only, growth off).
+LONG_MIX = os.environ.get("LONG_MIX", "0") == "1"
 MEM_STOP_GB = 2.0      # background safety floor: if free GPU VRAM drops to/below this,
                        # save the checkpoint and stop cleanly (protects the co-resident
                        # prod services from OOM). Resume later with --resume.
@@ -135,6 +141,14 @@ def _val_long(m, vd, W, ctx, bs, actx, iters=20):
             tot += F.cross_entropy(lg.reshape(-1, VOC), yw.reshape(-1)).item() * yw.numel(); n += yw.numel()
     m.train(); return math.exp(tot / n)
 
+def _sample_W(it, steps, max_W):
+    """Curriculum window-count for LONG_MIX: ramp the reachable range short->long over the first half of
+    training, but ALWAYS still sample short (so short context stays sharp = replay). Power of 2 in [1, max_W]."""
+    import random
+    max_exp = max(0, int(math.log2(max_W)))
+    reach = max_exp * min(1.0, it / max(1, steps * 0.5))           # 0 -> max_exp by mid-training
+    return min(max_W, 1 << random.randint(0, int(reach)))          # log-uniform over [1 .. 2^reach]
+
 def main(steps, lr, resume, override_bs, grow_enabled):
     torch.manual_seed(0); np.random.seed(0)
     cfg = autotune()
@@ -171,11 +185,14 @@ def main(steps, lr, resume, override_bs, grow_enabled):
           f"bs={bs} accum={accum} (eff {bs*accum}) bf16={bf16} compile={cfg['compile']} | "
           f"train_toks={td.size(0):,}", flush=True)
     if LONG_W > 1:
-        grow_enabled = False                                           # refining the carry, not growing the model
+        if not LONG_MIX:
+            grow_enabled = False                                       # fixed-W refining: not growing the model
         if LONG_BPTT: m.grad_checkpoint = True                         # full-BPTT holds W windows -> checkpoint to bound it
-        print(f"[long-ctx] WINDOWED training ON: W={LONG_W} windows of {CFG['ctx']} = {LONG_W*CFG['ctx']} effective context "
-              f"({'full-BPTT' if LONG_BPTT else 'detached TBPTT'}); carrier state carried across windows "
-              f"(attention stays at {CFG['ctx']}). Growth disabled.", flush=True)
+        print(f"[long-ctx] {'MIXED-W CONTINUAL' if LONG_MIX else 'FIXED-W'} training ON: "
+              f"W{'<=' if LONG_MIX else '='}{LONG_W} ({LONG_W*CFG['ctx']} max ctx, "
+              f"{'full-BPTT' if LONG_BPTT else 'detached'}); "
+              f"{'growth ENABLED  probe at W=1, long stays in the replay mix' if LONG_MIX else 'growth disabled (refine only)'}.",
+              flush=True)
     def _mkopt(params, lr, wd=0.05):                                   # fused AdamW kernel on GPU (~5% faster
         if lowmem: return bnb.optim.PagedAdamW8bit(params, lr=lr, weight_decay=wd, betas=(0.9, 0.95))
         return torch.optim.AdamW(params, lr=lr, weight_decay=wd, betas=(0.9, 0.95), fused=(DEVICE == "cuda"))
@@ -212,16 +229,17 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     # loaded above; best is re-validated above so it's never lost. Data is sampled at RANDOM offsets
     # across the whole corpus (see H.batch), so any stop point has already seen all data types.
     state_path = CFG["ckpt"].rsplit(".", 1)[0] + "_state.json"
-    start_it, step_base = 1, 0
+    start_it, step_base, seen_toks = 1, 0, 0.0
     if resume and os.path.exists(state_path):
         try:
             st = json.load(open(state_path)); start_it = int(st.get("step", 0)) + 1; step_base = start_it - 1
+            seen_toks = float(st.get("seen_toks", step_base * bs * accum * CFG["ctx"]))  # accurate w/ mixed W; estimate old
             lr_scale = float(st.get("lr_scale", lr_scale)); lr_wait = int(st.get("lr_wait", lr_wait))
             if "lr" in st and lr <= 0: lr = float(st["lr"])    # restore the DERIVED peak lr (find_lr is unreliable
             print(f"resumed STATE: continuing at step {start_it} (lr_scale {lr_scale:.3f}, "  # on trained weights -> don't re-run it)
                   f"peak_lr {lr:.2e}) -- not restarting from 0", flush=True)
         except Exception as e: print("state restore skipped:", str(e)[:50], flush=True)
-    t0, run_loss = time.time(), None
+    t0, run_loss, base_toks = time.time(), None, seen_toks       # base_toks -> tok/s for THIS run only
     no_improve, grow_patience, grow_count = 0, int(os.environ.get("GROW_PATIENCE", "5")), 0   # grow-as-you-train
     val_every = int(os.environ.get("VAL_EVERY", "500"))              # validation/checkpoint cadence (tunable)
     best_ckpt = os.environ.get("BEST_CKPT", "pragnosia_best.pt")     # save-on-best path (env so tests don't clobber)
@@ -270,11 +288,13 @@ def main(steps, lr, resume, override_bs, grow_enabled):
         for g in opt.param_groups: g["lr"] = clr
         opt.zero_grad()
         if LONG_W > 1:                               # windowed long-context: carry carrier state across W windows
+            Wt = _sample_W(it, steps, LONG_W) if LONG_MIX else LONG_W   # this step's window count (curriculum if mixed)
             ll = 0.0
             for _ in range(accum):
-                ll += _long_step(m, td, bs, LONG_W, CFG["ctx"], actx, accum, LONG_BPTT)
+                ll += _long_step(m, td, bs, Wt, CFG["ctx"], actx, accum, LONG_BPTT)
             l = ll / accum
         else:
+            Wt = 1
             for _ in range(accum):                   # gradient accumulation
                 x, y = get_batch()
                 with actx:
@@ -290,9 +310,9 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                 il = F.cross_entropy(fwd(xi).reshape(-1, VOC), yi.reshape(-1), ignore_index=-100)
             il.backward()
             torch.nn.utils.clip_grad_norm_(m.parameters(), 1.0); id_opt.step()
-        seq = CFG["ctx"] * LONG_W                                            # long-ctx: W windows per sample (W=1 normal)
-        toks = it * bs * accum * seq                                         # cumulative (for epoch)
-        tps = (it - step_base) * bs * accum * seq / (time.time() - t0)       # rate THIS run (resume-correct)
+        seen_toks += bs * accum * CFG["ctx"] * Wt                            # ACTUAL tokens this step (W varies if mixed)
+        toks = seen_toks                                                     # cumulative (epoch + growth gate, accurate)
+        tps = (seen_toks - base_toks) / max(1e-6, time.time() - t0)          # rate THIS run (resume-correct)
         # live progress bar (updates every step; throttled write to log)
         pbar.set_postfix_str(f"loss={run_loss:.3f} lr={clr:.1e} ppl*={best if best<1e8 else 0:.1f} "
                              f"{tps/1e3:.0f}Ktok/s epoch={toks/td.size(0):.2f}")
@@ -308,7 +328,11 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                                f"checkpoint saved, stopping cleanly (resume with --resume)")
                     break
         if it % val_every == 0 or it == steps:            # validation + checkpoint
-            if LONG_W > 1:                                 # long-context val (perplexity WITH the cross-window carry)
+            pm = None
+            if LONG_MIX:                                   # multi-length: track short AND long retention together
+                pm = {w: _val_long(m, vd, w, CFG["ctx"], max(2, bs // 2), actx) for w in sorted({1, max(2, LONG_W // 4), LONG_W})}
+                ppl = pm[LONG_W]                           # the long-context ppl drives best/save
+            elif LONG_W > 1:                               # fixed long-ctx: val WITH the cross-window carry
                 ppl = _val_long(m, vd, LONG_W, CFG["ctx"], max(2, bs // 2), actx)
             else:
                 m.eval(); tot = n = 0
@@ -319,10 +343,11 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                 ppl = math.exp(tot / n); m.train()
             val_hist.append(ppl)
             star = "  *** new best, checkpoint saved" if ppl < best else ""
-            pbar.write(f"  >> it={it:6d}  VAL_PPL={ppl:.2f}  (best {min(best,ppl):.2f})  "
+            extra = ("  [" + " ".join(f"W{w}:{v:.1f}" for w, v in pm.items()) + "]") if pm else ""
+            pbar.write(f"  >> it={it:6d}  VAL_PPL={ppl:.2f}{extra}  (best {min(best,ppl):.2f})  "
                        f"loss={run_loss:.3f}  ({(time.time()-t0)/3600:.2f}h){star}")
             torch.save(m.state_dict(), CFG["ckpt"])      # save LATEST every val (resumable)
-            json.dump({"step": it, "lr_scale": lr_scale, "lr_wait": lr_wait, "best": best, "lr": lr},
+            json.dump({"step": it, "lr_scale": lr_scale, "lr_wait": lr_wait, "best": best, "lr": lr, "seen_toks": seen_toks},
                       open(state_path, "w"))             # sidecar -> resume CONTINUES from here, not 0
             if ppl < best:                                # ALSO protect the BEST: refinement runs can
                 best = ppl; no_improve = 0; lr_wait = 0   # drift worse at too-high lr, and latest-only
@@ -401,6 +426,7 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                             if c is not best_c: del c
                         torch.cuda.empty_cache()
                         m = best_c; CFG["layers"] = len(m.blocks); CFG["mlp_mult"] = m.mlp_mult
+                        if LONG_BPTT: m.grad_checkpoint = True            # grown model: keep ckpt for full-BPTT long-ctx
                         json.dump(CFG, open("pragnosia.json", "w"), indent=2)
                         bs, accum = best_nb, max(1, 64 // best_nb)
                         opt = _mkopt(m.parameters(), lr)
