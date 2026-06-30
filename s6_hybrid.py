@@ -72,6 +72,10 @@ class SpinBlock(nn.Module):
         x, _ = self.carrier(x)                                    # token mixing (carrier does its own ln + gated residual)
         x = x + self.mlp(self.ln2(x))                             # channel mixing
         return x
+    def forward_state(self, x, h0=None):                          # stateful path: carry the carrier state across
+        x, hs = self.carrier(x, h0)                               # forward calls -> O(T) cross-window long context
+        x = x + self.mlp(self.ln2(x))
+        return x, hs
 
 def _lru_scan(lr, li, br, bi, h0r=None, h0i=None):
     """Hillis-Steele inclusive associative scan (log2 T steps, fully parallel) of the
@@ -166,6 +170,10 @@ class RealBlock(nn.Module):
         x, _ = self.carrier(x)
         x = x + self.mlp(self.ln2(x))
         return x
+    def forward_state(self, x, h0=None):
+        x, hs = self.carrier(x, h0)
+        x = x + self.mlp(self.ln2(x))
+        return x, hs
 
 class SpinAttentionLM(nn.Module):
     """Attention-dominant for quality + one spin carrier for cross-token state."""
@@ -206,8 +214,16 @@ class SpinAttentionLM(nn.Module):
         h = self.emb(x) + self.pos(pos)[None]
         ck = self.training and getattr(self, "grad_checkpoint", False)   # recompute acts in backward
         mode = getattr(self, "carrier_mode", "single"); states = []
+        # generation path: carry the intra-block carrier state across forward calls (windows), so
+        # spin_dominant / real_dominant get O(T) cross-window long context. Off in training (state=None,
+        # return_state=False) so checkpointing/compile are untouched.
+        thread = (return_state or state is not None) and mode in ("spin_dominant", "real_dominant")
+        si = 0
         for i, b in enumerate(self.blocks):                              # -> trains a big model on a small GPU
-            h = torch.utils.checkpoint.checkpoint(b, h, use_reentrant=False) if ck else b(h)
+            if thread and hasattr(b, "forward_state"):                   # SpinBlock/RealBlock -> thread its carrier state
+                h, hs = b.forward_state(h, None if state is None else state[si]); states.append(hs); si += 1
+            else:
+                h = torch.utils.checkpoint.checkpoint(b, h, use_reentrant=False) if ck else b(h)
             if mode == "per_block":                                      # carrier inside every block
                 h, hs = self.carriers[i](h, None if state is None else state[i]); states.append(hs)
         if mode == "single":                                            # one carrier after all blocks
