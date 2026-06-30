@@ -111,7 +111,7 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
         <li><b>Continual.</b> Learns new facts online and remembers them across sessions  no retraining.</li>
         <li><b>Knowledge can be taught and recalled</b> on the fly, with surprise-modulated plasticity.</li>
         <li><b>It abstains on the clearly-unknowable</b>  it abstains (“I don't know”) from its own uncertainty  though at 284M this signal is scale-limited, <i>not</i> solved.</li>
-        <li><b>Parameter-efficient when spin is the core</b>: a param-matched test shows the spin-dominant design beats an attention-only baseline by ~21%, and at <b>284M</b> the spin carrier is provably the load-bearing core (ablate it → perplexity 306× worse vs 3.4× for attention)  single-seed and not yet at 1B, but a properly-controlled at-scale signal.</li>
+        <li><b>Parameter-efficient when spin is the core</b>: a param-matched test shows the spin-dominant design beats an attention-only baseline by ~21%, and at <b>284M</b> the spin carrier is provably the load-bearing core (ablate it → perplexity 306× worse vs 3.4× for attention)  the at-scale run is one seed (the placement win itself is multi-seed-confirmed across 3 seeds) and not yet at 1B, but a properly-controlled at-scale signal.</li>
       </ul></div>
   </div>
 </div></section>
@@ -150,7 +150,7 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
       <li><b>Nothing hardcoded</b>  what matters, when to abstain, what to recall: all derived from data, re-tuned as it grows.</li>
     </ul></div>
     <div class="col cons"><h3>Where it loses (for now)</h3><ul>
-      <li><b>The scaled 1.4B was built backwards</b>  growth diluted the single spin carrier to 0.37% of the parameters, so it's effectively an attention transformer with a vestigial spin side-channel (causal signal just 0.028% of the loss). The fix  making spin the core mixer  wins ~21% at matched params and is now validated at <b>284M</b> (carrier load-bearing: 306× ablation cost), but is still single-seed and not yet at 1B.</li>
+      <li><b>The scaled 1.4B was built backwards</b>  growth diluted the single spin carrier to 0.37% of the parameters, so it's effectively an attention transformer with a vestigial spin side-channel (causal signal just 0.028% of the loss). The fix  making spin the core mixer  wins ~21% at matched params and is now validated at <b>284M</b> (carrier load-bearing: 306× ablation cost) and multi-seed-confirmed at small scale (3 seeds); the 284M run itself is one seed, and 1B replication remains.</li>
       <li><b>Weak multi-hop composition</b>  undertrained for its grown size; relational analogy, multi-step deduction and systematic generalization still lag. More tokens, not more parameters, is the lever.</li>
       <li><b>Can be confidently wrong</b> on familiar-but-incorrect facts (the same failure as big LLMs).</li>
       <li><b>Continual learning has a stability–plasticity tension</b>  teaching a fact hard enough to recall it can interfere with close neighbours (teaching a made-up capital nudged a real country's capital); teaching gently avoids that but under-learns. General skills are retained (no broad forgetting), but reliable single-fact editing isn't solved yet.</li>
