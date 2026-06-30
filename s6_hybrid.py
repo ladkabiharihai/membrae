@@ -221,7 +221,9 @@ class SpinAttentionLM(nn.Module):
         si = 0
         for i, b in enumerate(self.blocks):                              # -> trains a big model on a small GPU
             if thread and hasattr(b, "forward_state"):                   # SpinBlock/RealBlock -> thread its carrier state
-                h, hs = b.forward_state(h, None if state is None else state[si]); states.append(hs); si += 1
+                h0 = None if state is None else state[si]
+                h, hs = (torch.utils.checkpoint.checkpoint(b.forward_state, h, h0, use_reentrant=False)
+                         if ck else b.forward_state(h, h0)); states.append(hs); si += 1   # ck -> bounded long-ctx train
             else:
                 h = torch.utils.checkpoint.checkpoint(b, h, use_reentrant=False) if ck else b(h)
             if mode == "per_block":                                      # carrier inside every block
@@ -328,6 +330,15 @@ def batch(data, bs):
     ix = torch.randint(0, data.size(0) - L - 1, (bs,))
     x = torch.stack([data[i:i+L] for i in ix]).to(DEVICE).long()       # cast only this batch
     y = torch.stack([data[i+1:i+L+1] for i in ix]).to(DEVICE).long()
+    return x, y
+def batch_long(data, bs, W):
+    """A batch of bs CONTIGUOUS sequences of W*L tokens, for windowed long-context training: the
+    sequence is fed to the model in W windows of L, carrying the carrier state across them (the
+    recurrence sees >L tokens of context while attention stays inside its trained L-window)."""
+    span = W * L
+    ix = torch.randint(0, data.size(0) - span - 1, (bs,))
+    x = torch.stack([data[i:i+span] for i in ix]).to(DEVICE).long()
+    y = torch.stack([data[i+1:i+span+1] for i in ix]).to(DEVICE).long()
     return x, y
 
 

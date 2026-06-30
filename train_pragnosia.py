@@ -1,6 +1,6 @@
 """
 Train Pragnosia's language faculty from pragnosia.json. GPU-ADAPTIVE: it detects
-the GPU's VRAM and auto-tunes batch size, gradient accumulation, and precision —
+the GPU's VRAM and auto-tunes batch size, gradient accumulation, and precision 
 so if you move to a bigger GPU and (re)start or --resume, it just picks the new
 hardware up and trains optimally. Resumable from the auto-saved checkpoint.
 
@@ -16,6 +16,14 @@ DEVICE = H.DEVICE
 CFG = json.load(open(os.environ.get("CONFIG", "pragnosia.json")))   # CONFIG=pragnosia_baseline.json for the carrier=none baseline
 H.VOC, H.L = CFG["vocab"], CFG["ctx"]
 VOC = CFG["vocab"]
+# LONG-CONTEXT TRAINING: >1 feeds each sample as W windows of ctx, carrying the carrier state across
+# them (the recurrence sees W*ctx tokens of context while attention stays inside its trained ctx-window).
+# This is what teaches spin_dominant to USE a cross-window state -- without it the carry doesn't help.
+LONG_W = int(os.environ.get("LONG_CTX_W", str(CFG.get("long_ctx_windows", 1))))
+# LONG_BPTT=1 backprops across ALL windows (one backward) so the carrier learns to WRITE useful
+# cross-window state, not just read it -- stronger long-context, but holds W windows' graph (uses
+# grad-checkpoint). Default 0 = detached TBPTT (per-window backward, memory bounded to one window).
+LONG_BPTT = os.environ.get("LONG_BPTT", "0") == "1"
 MEM_STOP_GB = 2.0      # background safety floor: if free GPU VRAM drops to/below this,
                        # save the checkpoint and stop cleanly (protects the co-resident
                        # prod services from OOM). Resume later with --resume.
@@ -93,6 +101,40 @@ def _identity_batch(seqs, bs):
         y[i, :len(yi)] = torch.tensor(yi, device=DEVICE)
     return x, y
 
+def _long_step(m, td, bs, W, ctx, actx, accum, bptt=False):
+    """One long-context micro-batch: feed a W*ctx sequence as W windows, carrying the carrier state
+    across them. Teaches the model to USE a cross-window carried state. Returns the mean per-window loss.
+    bptt=False (default): detach state at each boundary, backprop per window -> memory bounded to ONE
+    window (safe on a shared GPU). bptt=True: keep the graph across all windows, one backward -> the
+    carrier also learns to WRITE useful cross-window state (stronger, needs grad-checkpoint for memory)."""
+    x, y = H.batch_long(td, bs, W); S = None; tot = 0.0; losses = []
+    for w in range(W):
+        xw = x[:, w*ctx:(w+1)*ctx]; yw = y[:, w*ctx:(w+1)*ctx]
+        with actx:
+            lg, S = m.forward(xw, state=S, return_state=True)
+            lw = F.cross_entropy(lg.reshape(-1, VOC), yw.reshape(-1))
+        tot += lw.item()
+        if bptt:
+            losses.append(lw / W / accum)
+        else:
+            (lw / W / accum).backward(); S = [s.detach() for s in S]
+    if bptt: sum(losses).backward()                                 # one backward across all W windows
+    return tot / W
+
+@torch.no_grad()
+def _val_long(m, vd, W, ctx, bs, actx, iters=20):
+    """Validation perplexity WITH the cross-window carry -- the long-context metric (should drop as
+    the model learns to use the carried state)."""
+    m.eval(); tot = n = 0
+    for _ in range(iters):
+        x, y = H.batch_long(vd, bs, W); S = None
+        for w in range(W):
+            xw = x[:, w*ctx:(w+1)*ctx]; yw = y[:, w*ctx:(w+1)*ctx]
+            with actx:
+                lg, S = m.forward(xw, state=S, return_state=True)
+            tot += F.cross_entropy(lg.reshape(-1, VOC), yw.reshape(-1)).item() * yw.numel(); n += yw.numel()
+    m.train(); return math.exp(tot / n)
+
 def main(steps, lr, resume, override_bs, grow_enabled):
     torch.manual_seed(0); np.random.seed(0)
     cfg = autotune()
@@ -128,6 +170,12 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     print(f"[pragnosia] {p/1e6:.0f}M params | GPU {cfg['gpu']} {cfg['vram']}GB | "
           f"bs={bs} accum={accum} (eff {bs*accum}) bf16={bf16} compile={cfg['compile']} | "
           f"train_toks={td.size(0):,}", flush=True)
+    if LONG_W > 1:
+        grow_enabled = False                                           # refining the carry, not growing the model
+        if LONG_BPTT: m.grad_checkpoint = True                         # full-BPTT holds W windows -> checkpoint to bound it
+        print(f"[long-ctx] WINDOWED training ON: W={LONG_W} windows of {CFG['ctx']} = {LONG_W*CFG['ctx']} effective context "
+              f"({'full-BPTT' if LONG_BPTT else 'detached TBPTT'}); carrier state carried across windows "
+              f"(attention stays at {CFG['ctx']}). Growth disabled.", flush=True)
     def _mkopt(params, lr, wd=0.05):                                   # fused AdamW kernel on GPU (~5% faster
         if lowmem: return bnb.optim.PagedAdamW8bit(params, lr=lr, weight_decay=wd, betas=(0.9, 0.95))
         return torch.optim.AdamW(params, lr=lr, weight_decay=wd, betas=(0.9, 0.95), fused=(DEVICE == "cuda"))
@@ -144,7 +192,7 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     def get_batch():
         return pf.next() if pf else H.batch(td, bs)
     warm = 2000
-    # ADAPTIVE lr (no fixed schedule): warm up, then let the VAL signal drive it — halve on
+    # ADAPTIVE lr (no fixed schedule): warm up, then let the VAL signal drive it  halve on
     # degradation, ease on plateau (mirrors grow-on-saturation). lr_scale self-tunes; --lr is
     # just the initial peak. So a too-high start auto-corrects instead of silently degrading.
     lr_scale, lr_wait, lr_patience = 1.0, 0, 3
@@ -154,7 +202,10 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     from tqdm import tqdm
     # init `best` from the RESUMED model's own val ppl, so an early step can never overwrite a
     # known-good checkpoint -- save-on-best only fires on a real improvement.
-    best = H.val_ppl(m, vd, iters=15) if (resume and os.path.exists(CFG["ckpt"])) else 1e9
+    if resume and os.path.exists(CFG["ckpt"]):
+        best = _val_long(m, vd, LONG_W, CFG["ctx"], max(2, bs // 2), actx) if LONG_W > 1 else H.val_ppl(m, vd, iters=15)
+    else:
+        best = 1e9
     if best < 1e9: print(f"resumed model val_ppl={best:.2f} -- will only save if training beats it", flush=True)
     # RESUME CONTINUES, not restarts: restore the step counter + adaptive-lr state from a sidecar
     # so --resume picks up where it left (no re-warmup from 0, no lr_scale reset). Weights already
@@ -218,13 +269,19 @@ def main(steps, lr, resume, override_bs, grow_enabled):
         clr = lr * lr_at(it)
         for g in opt.param_groups: g["lr"] = clr
         opt.zero_grad()
-        for _ in range(accum):                       # gradient accumulation
-            x, y = get_batch()
-            with actx:
-                loss = F.cross_entropy(fwd(x).reshape(-1, VOC), y.reshape(-1)) / accum
-            loss.backward()
+        if LONG_W > 1:                               # windowed long-context: carry carrier state across W windows
+            ll = 0.0
+            for _ in range(accum):
+                ll += _long_step(m, td, bs, LONG_W, CFG["ctx"], actx, accum, LONG_BPTT)
+            l = ll / accum
+        else:
+            for _ in range(accum):                   # gradient accumulation
+                x, y = get_batch()
+                with actx:
+                    loss = F.cross_entropy(fwd(x).reshape(-1, VOC), y.reshape(-1)) / accum
+                loss.backward()
+            l = loss.item() * accum
         torch.nn.utils.clip_grad_norm_(m.parameters(), 1.0); opt.step()
-        l = loss.item() * accum
         run_loss = l if run_loss is None else 0.92 * run_loss + 0.08 * l
         if id_seqs and it % id_every == 0:           # gentle identity nudge, interleaved
             id_opt.zero_grad()
@@ -233,8 +290,9 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                 il = F.cross_entropy(fwd(xi).reshape(-1, VOC), yi.reshape(-1), ignore_index=-100)
             il.backward()
             torch.nn.utils.clip_grad_norm_(m.parameters(), 1.0); id_opt.step()
-        toks = it * bs * accum * CFG["ctx"]                                  # cumulative (for epoch)
-        tps = (it - step_base) * bs * accum * CFG["ctx"] / (time.time() - t0)  # rate THIS run (resume-correct)
+        seq = CFG["ctx"] * LONG_W                                            # long-ctx: W windows per sample (W=1 normal)
+        toks = it * bs * accum * seq                                         # cumulative (for epoch)
+        tps = (it - step_base) * bs * accum * seq / (time.time() - t0)       # rate THIS run (resume-correct)
         # live progress bar (updates every step; throttled write to log)
         pbar.set_postfix_str(f"loss={run_loss:.3f} lr={clr:.1e} ppl*={best if best<1e8 else 0:.1f} "
                              f"{tps/1e3:.0f}Ktok/s epoch={toks/td.size(0):.2f}")
@@ -246,16 +304,20 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                 free_gb = torch.cuda.mem_get_info()[0] / 2**30
                 if free_gb <= MEM_STOP_GB:
                     torch.save(m.state_dict(), CFG["ckpt"])
-                    pbar.write(f"  !! free GPU VRAM {free_gb:.2f}GB <= {MEM_STOP_GB}GB floor — "
+                    pbar.write(f"  !! free GPU VRAM {free_gb:.2f}GB <= {MEM_STOP_GB}GB floor  "
                                f"checkpoint saved, stopping cleanly (resume with --resume)")
                     break
         if it % val_every == 0 or it == steps:            # validation + checkpoint
-            m.eval(); tot = n = 0
-            with torch.no_grad(), actx:
-                for _ in range(30):
-                    a, b = H.batch(vd, max(4, bs // 2))
-                    tot += F.cross_entropy(m(a).reshape(-1, VOC), b.reshape(-1)).item() * b.numel(); n += b.numel()
-            ppl = math.exp(tot / n); m.train(); val_hist.append(ppl)
+            if LONG_W > 1:                                 # long-context val (perplexity WITH the cross-window carry)
+                ppl = _val_long(m, vd, LONG_W, CFG["ctx"], max(2, bs // 2), actx)
+            else:
+                m.eval(); tot = n = 0
+                with torch.no_grad(), actx:
+                    for _ in range(30):
+                        a, b = H.batch(vd, max(4, bs // 2))
+                        tot += F.cross_entropy(m(a).reshape(-1, VOC), b.reshape(-1)).item() * b.numel(); n += b.numel()
+                ppl = math.exp(tot / n); m.train()
+            val_hist.append(ppl)
             star = "  *** new best, checkpoint saved" if ppl < best else ""
             pbar.write(f"  >> it={it:6d}  VAL_PPL={ppl:.2f}  (best {min(best,ppl):.2f})  "
                        f"loss={run_loss:.3f}  ({(time.time()-t0)/3600:.2f}h){star}")
