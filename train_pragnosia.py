@@ -290,9 +290,10 @@ def main(steps, lr, resume, override_bs, grow_enabled):
             elif grow_enabled and no_improve >= grow_patience:       # TPP-trained AND plateaued -> consider growth
                 import grow as G
                 free = (torch.cuda.mem_get_info()[0] / 2**30) if DEVICE == "cuda" else 99
-                if G.n_params(m) >= budget_params:                    # DATA budget reached (derived)
+                _cap = min(budget_params, float(os.environ.get("MAX_PARAMS", "1e15")))  # data budget OR explicit MAX_PARAMS hard cap
+                if G.n_params(m) >= _cap:                             # DATA budget / MAX_PARAMS reached
                     grow_enabled = False
-                    pbar.write(f"  ## DATA-BUDGET cap: {G.n_params(m)/1e6:.1f}M >= {budget_params/1e6:.1f}M "
+                    pbar.write(f"  ## SIZE cap: {G.n_params(m)/1e6:.1f}M >= {_cap/1e6:.1f}M "
                                f"(tokens/20) -- a bigger model can't be trained to maturity on this corpus. Staying.")
                 elif free <= 4.0:                                     # physical VRAM cap
                     grow_enabled = False
