@@ -11,21 +11,26 @@ STEPS, BS, WARM, LOG = 20000, 24, 250, 1000
 def mk(car): return H.SpinAttentionLM(VOC, 512, 8, 8, mlp_mult=4, carrier=car).to(DEV).bfloat16()
 def lr_at(t, peak): return peak * t / WARM if t < WARM else 0.5 * peak * (1 + math.cos(math.pi * (t - WARM) / (STEPS - WARM)))
 RES = "learning_curves.json"
-res = json.load(open(RES)) if os.path.exists(RES) else {}
+# INTERLEAVED: train both archs together (one step each per iteration), log both every LOG -> the two
+# curves grow side by side so the gap can be watched forming in real time. Same total compute, fair (same
+# seed, same batches per step). Both 37M models fit easily.
+res = {}
+torch.manual_seed(0); np.random.seed(0)
+models = []
 for name, car, peak in ARCHS:
-    if name in res and len(res[name]) >= STEPS // LOG: continue
-    torch.manual_seed(0); np.random.seed(0)
     m = mk(car); opt = torch.optim.AdamW(m.parameters(), lr=peak, betas=(0.9, 0.95), weight_decay=0.05, fused=True); m.train()
-    curve = []
-    for step in range(1, STEPS + 1):
+    models.append((name, m, opt, peak)); res[name] = []
+for step in range(1, STEPS + 1):
+    x, y = H.batch(td, BS)                                    # SAME batch to both archs this step (fair)
+    for name, m, opt, peak in models:
         for g in opt.param_groups: g["lr"] = lr_at(step, peak)
-        x, y = H.batch(td, BS)
         loss = F.cross_entropy(m(x).reshape(-1, VOC), y.reshape(-1))
         opt.zero_grad(); loss.backward(); torch.nn.utils.clip_grad_norm_(m.parameters(), 1.0); opt.step()
-        if step % LOG == 0 or step == STEPS:
-            ppl = float(H.val_ppl(m, vd, iters=60)); toks = step * BS * CTX
-            curve.append({"step": step, "tokens": toks, "ppl": round(ppl, 2)})
+    if step % LOG == 0 or step == STEPS:
+        toks = step * BS * CTX
+        for name, m, opt, peak in models:
+            ppl = float(H.val_ppl(m, vd, iters=60))
+            res[name].append({"step": step, "tokens": toks, "ppl": round(ppl, 2)})
             print(f"  {name:16} step {step:6d} ({toks/1e6:5.0f}M tok)  ppl {ppl:7.1f}", flush=True)
-            res[name] = curve; json.dump(res, open(RES, "w"), indent=2)
-    del m, opt; torch.cuda.empty_cache()
+        json.dump(res, open(RES, "w"), indent=2)
 print("LC DONE", flush=True)
