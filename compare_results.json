@@ -1,0 +1,30 @@
+{
+  "ours-284M": {
+    "lambada": 0.19,
+    "hellaswag": 0.279,
+    "arc_easy": 0.347,
+    "arc_challenge": 0.24,
+    "piqa": 0.595
+  },
+  "gpt2 (124M)": {
+    "lambada": 0.322,
+    "hellaswag": 0.272,
+    "arc_easy": 0.341,
+    "arc_challenge": 0.231,
+    "piqa": 0.633
+  },
+  "cerebras/Cerebras-GPT-256M (256M)": {
+    "lambada": 0.295,
+    "hellaswag": 0.263,
+    "arc_easy": 0.327,
+    "arc_challenge": 0.221,
+    "piqa": 0.621
+  },
+  "gpt2-medium (355M)": {
+    "lambada": 0.428,
+    "hellaswag": 0.368,
+    "arc_easy": 0.375,
+    "arc_challenge": 0.233,
+    "piqa": 0.665
+  }
+}
