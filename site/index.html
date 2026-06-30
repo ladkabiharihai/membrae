@@ -152,7 +152,7 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
       .herostats span{display:block;font-size:12.5px;color:var(--mut);margin-top:6px;line-height:1.4}
     </style>
     <div class="herostats">
-      <div><b>306×</b><span>perplexity jump when the spin carrier is ablated — vs 3.4× for attention</span></div>
+      <div><b>306×</b><span>perplexity jump when the spin carrier is ablated  vs 3.4× for attention</span></div>
       <div><b>24.54</b><span>val perplexity, 284M spin-dominant model</span></div>
       <div><b>219<small> vs 279</small></b><span>spin-dominant vs attention-only, at matched parameters</span></div>
     </div>
@@ -298,6 +298,7 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
   <h2>The arc: from the wrong build to the load-bearing core</h2>
   <div class="stats">
     <div class="stat"><div class="big">306×</div><div class="lab">perplexity cost of ablating the spin carrier at 284M (vs 3.4× for attention)</div></div>
+    <div class="stat"><div class="big">3.5×</div><div class="lab">a DIFFERENT (real, no-phase) recurrence as the core also beats attention — placement generalizes</div></div>
     <div class="stat"><div class="big">−21%</div><div class="lab">spin-dominant vs attention-only, param-matched (win reproducible across 3 seeds, ±2% variance)</div></div>
     <div class="stat"><div class="big">284M</div><div class="lab">at-scale spin-dominant model (val ppl 24.54)</div></div>
     <div class="stat"><div class="big">0%</div><div class="lab">hardcoded decisions</div></div>
@@ -323,7 +324,7 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
   </div>
   <div class="key" style="margin-top:22px"><b>The model built the right way  the 284M:</b> spin as the token-mixer in 3 of every 4 blocks, trained on a 176.6B-token chain-of-thought corpus, best val ppl <b>24.54</b>  <b>5× smaller</b> than the 1.4B, but with a <b>provably load-bearing</b> spin carrier (ablate it → ppl <b>306×</b> worse; ablate attention → only 3.4×). Its capability battery genuinely jumps over the 27M laptop model (in parens): arithmetic <b>3/3</b> (0/3), knowledge <b>2/3</b> (0/3), theory-of-mind <b>2/2</b> (1/2), logic <b>2/2</b>, code <b>1/2</b>, in-context binding <b>1/2</b>. World-knowledge, arithmetic and theory-of-mind <i>emerged</i> at this scale.</div>
   <div class="key" style="margin-top:22px"><b>What's weak:</b> multi-step <b>0/2</b>, counterfactual <b>0/2</b> and causal <b>0/2</b> reasoning  the undertrained-for-size signature. The lever is more <i>tokens</i>, not more parameters or prompting. <b>Honesty (the consistency gate):</b> it abstains on the clearly-unknowable, but at 284M it does <i>not</i> separate real knowledge from confident confabulation  "capital of France" scores 0.53, an unknowable "secret password" also 0.53 and "who wins the 2031 election" 0.67, all overlapping. The model confabulates <i>consistently</i>; the gate needs scale or a redesigned signal. We are not claiming honesty is solved.</div>
-  <div class="key" style="margin-top:22px"><b>Standard public benchmarks (zero-shot, 284M):</b> above chance on most, at chance on the hardest — the honest profile of a small, undertrained-for-size model. <b>PIQA 59.5%</b> (chance 50%), <b>ARC-Easy 34.7%</b> (25%), <b>HellaSwag 27.9%</b> (25%), <b>LAMBADA 19.0%</b>, <b>ARC-Challenge 24.0%</b> (25% — at chance, the hard reasoning set), WikiText-2 word-ppl 157.9. Tokenizer-independent metrics; the eval harness is open (<span class="mono">eval_external.py</span>).</div>
+  <div class="key" style="margin-top:22px"><b>Standard public benchmarks (zero-shot, 284M):</b> above chance on most, at chance on the hardest  the honest profile of a small, undertrained-for-size model. <b>PIQA 59.5%</b> (chance 50%), <b>ARC-Easy 34.7%</b> (25%), <b>HellaSwag 27.9%</b> (25%), <b>LAMBADA 19.0%</b>, <b>ARC-Challenge 24.0%</b> (25%  at chance, the hard reasoning set), WikiText-2 word-ppl 157.9. Tokenizer-independent metrics; the eval harness is open (<span class="mono">eval_external.py</span>).</div>
 </div></section>
 
 <!-- HONESTY -->
