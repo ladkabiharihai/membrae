@@ -174,11 +174,25 @@ the checkpoint or rebuild with `prepare_scale.py`. Sanity: a slice decodes to cl
 ---
 
 ## 7. State as of this handover
+**UPDATE (2026-06-30).** The H100 grew the model to a **565M snapshot** (d768/24L/mlp17, 18 spin + 6 attn,
+**val ppl ~22**), synced to the laptop as `pragnosia_spin.pt` (the 284M preserved as `pragnosia_284m.*`, still
+the paper's anchor). New results this session: **(a) Generalization confirmed (reviewer's #1)**  a diagonal-REAL
+carrier (no phase, `real_dominant` mode) placed as the core ALSO beats attention: multi-seed attention 360.9±4.5 /
+complex-spin 115.7±1.8 / **real-no-phase 102.2±2.1 (3.5×, fewer params)**  so it's about PLACEMENT, not the phase.
+**(b) Open-model comparison** (`eval_compare.py`): the 284M matches/beats GPT-2(124M)+Cerebras-256M on
+ARC-Easy/HellaSwag, trails on PIQA/LAMBADA. **(c) Long-context: mechanism + training implemented.** The cross-window
+carrier-carry wasn't wired for spin_dominant (carrier is intra-block)  fixed (`forward_state` + threaded `forward`);
+but a model trained fresh-per-window doesn't USE a carried state (measured: 62.6 w/ carry vs 58.0 w/o). So added
+**windowed-TBPTT long-context training** (`LONG_CTX_W=W`, optional `LONG_BPTT=1`)  verified to teach the carry
+(407 vs 649 ppl on continuations). **Run it on the H100: `VRAM_CAP=16 LONG_CTX_W=4 python3 train_pragnosia.py --resume
+--no-grow`** (see RUNBOOK 2b). Multi-seed ablation = `ablation_sweep.py` (the table is complete bar a transformer-11L
+re-run at a sane lr, the auto-lr diverged it).
+
 **The validated result is the 284M spin-dominant** (`pragnosia_spin.pt`, d=768/20L/mlp9), trained to step 418K /
-**val ppl 24.5** — this is the §2 at-scale result (carrier 306× load-bearing; arithmetic/knowledge/ToM emerged).
+**val ppl 24.5**  this is the §2 at-scale result (carrier 306× load-bearing; arithmetic/knowledge/ToM emerged).
 A **bf16 copy is synced to the laptop** and verified (ppl 25.2 ≈ 24.54 fp32). **In progress on the H100 (read-only
 check):** with growth on, the run has **self-grown to 23 layers / mlp_mult 12 (~440M)** and is re-training after the
-grow (step 444K, ppl ~25.8 re-annealing — bigger model, not yet beating the 284M's 24.5; over-training toward the
+grow (step 444K, ppl ~25.8 re-annealing  bigger model, not yet beating the 284M's 24.5; over-training toward the
 ~600M capability run at 30–35 tok/param). The **`carrier="none"` baseline is prepped but NOT yet run** (config only). The earlier 27M laptop run (self-grew 24M→27.3M, ppl ~40) was the
 small-scale proof. The laptop holds a ~1 GB strided CoT-inclusive subsample (500M tokens) for local teach/replay.
 The 1.4B (`pragnosia_best.pt`, attention-dominant, the wrong build) is the reference. The decisive experiment  spin-dominant vs transformer-only at 200M–1B on the full CoT
