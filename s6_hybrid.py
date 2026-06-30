@@ -127,6 +127,46 @@ class SpinCarrier(nn.Module):
         out = self.C(torch.cat([hr, hi], -1))                        # phase + magnitude -> real
         return x + torch.sigmoid(self.gate) * out, torch.stack([hr[:, -1], hi[:, -1]], 1)
 
+class RealCarrier(nn.Module):
+    """Diagonal-REAL linear recurrence (no phase): h_t = lam (.) h_{t-1} + b_t, lam in (0,1). A DIFFERENT
+    recurrence family from the complex spin carrier -- used to test whether PLACEMENT, not the complex
+    phase, is what makes a recurrent mixer load-bearing (the generalization control). Same parallel scan
+    with the imaginary parts zeroed; gated residual like the spin carrier."""
+    def __init__(self, d):
+        super().__init__()
+        self.d = d
+        self.ln = nn.LayerNorm(d)
+        r = torch.rand(d)
+        self.nu = nn.Parameter(torch.log(-torch.log(0.5 + 0.4 * r)))   # |lam| ~ U(0.5,0.9), stable real decay
+        self.gain = nn.Linear(d, d)                                    # input-dependent input gate
+        self.U = nn.Linear(d, d)                                       # real input
+        self.C = nn.Linear(d, d)                                       # real state -> real out
+        self.gate = nn.Parameter(torch.tensor(-2.0))
+    def forward(self, x, h0=None):
+        yn = self.ln(x)
+        g = torch.sigmoid(self.gain(yn))
+        br = self.U(yn) * g
+        lr = torch.exp(-torch.exp(self.nu))                            # real lambda in (0,1)
+        li = torch.zeros_like(lr); bi = torch.zeros_like(br)
+        h0r = h0i = None
+        if h0 is not None: h0r, h0i = h0[:, 0], h0[:, 1]
+        hr, _ = _lru_scan(lr.to(br.dtype), li.to(br.dtype), br, bi, h0r, h0i)
+        out = self.C(hr)
+        return x + torch.sigmoid(self.gate) * out, torch.stack([hr[:, -1], torch.zeros_like(hr[:, -1])], 1)
+
+class RealBlock(nn.Module):
+    """Like SpinBlock but with the REAL carrier as the token-mixer -- for the generalization control."""
+    def __init__(self, d, mlp_mult=4):
+        super().__init__()
+        self.carrier = RealCarrier(d)
+        with torch.no_grad(): self.carrier.gate.fill_(2.0)            # strong mixer, not a side-channel
+        self.ln2 = nn.LayerNorm(d)
+        self.mlp = nn.Sequential(nn.Linear(d, mlp_mult * d), nn.GELU(), nn.Linear(mlp_mult * d, d))
+    def forward(self, x):
+        x, _ = self.carrier(x)
+        x = x + self.mlp(self.ln2(x))
+        return x
+
 class SpinAttentionLM(nn.Module):
     """Attention-dominant for quality + one spin carrier for cross-token state."""
     def __init__(self, vocab=VOC, d=512, n_head=8, n_layer=3, mlp_mult=4, carrier="single"):
@@ -137,6 +177,9 @@ class SpinAttentionLM(nn.Module):
         if carrier == "spin_dominant":                                   # INTENDED design: SPIN is the token-mixer
             self.blocks = nn.ModuleList([Block(d, n_head, mlp_mult) if i % 4 == 3 else SpinBlock(d, mlp_mult)
                                          for i in range(n_layer)])        #   core; attention only every 4th (helper)
+        elif carrier == "real_dominant":                                 # GENERALIZATION control: a DIFFERENT
+            self.blocks = nn.ModuleList([Block(d, n_head, mlp_mult) if i % 4 == 3 else RealBlock(d, mlp_mult)
+                                         for i in range(n_layer)])        #   (real, no-phase) recurrence as the core
         else:
             self.blocks = nn.ModuleList([Block(d, n_head, mlp_mult) for _ in range(n_layer)])
         if carrier == "single":                                          # one carrier after all blocks (default):

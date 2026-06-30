@@ -7,6 +7,7 @@ DEV = "cuda"; c = json.load(open("pragnosia.json")); H.VOC, H.L = c["vocab"], c[
 VOC, CTX = c["vocab"], c["ctx"]
 td, vd = H.load("window2_train"), H.load("big_valid")
 ARCHS = [("attention-only", "none", 8), ("spin-dominant", "spin_dominant", 8),
+         ("real-dominant", "real_dominant", 8),                  # generalization control: a DIFFERENT recurrence as core
          ("per-block", "per_block", 8), ("transformer-11L", "none", 11)]
 SEEDS = [0, 1, 2]
 STEPS, BS, WARM = 5000, 24, 250
