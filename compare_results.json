@@ -26,5 +26,12 @@
     "arc_easy": 0.375,
     "arc_challenge": 0.233,
     "piqa": 0.665
+  },
+  "ours-565M": {
+    "lambada": 0.217,
+    "hellaswag": 0.293,
+    "arc_easy": 0.341,
+    "arc_challenge": 0.249,
+    "piqa": 0.607
   }
 }
