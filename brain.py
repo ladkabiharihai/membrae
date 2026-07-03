@@ -652,7 +652,11 @@ class Brain(nn.Module):
             for _ in range(8 if big else 3):                   # more self-rehearsal coverage protects more
                 xa, _ = H.batch(self._replay, ab)              # neighbours from a strongly-taught similar fact
                 anchors.append((xa, self.lm(xa).argmax(-1)))   # its own current self
-        opt = torch.optim.AdamW(self.lm.parameters(), lr=lr_eff)
+        if big:                                                # big model on a small GPU: page the optimizer
+            import bitsandbytes as bnb                          # state (8-bit) to CPU RAM so it doesn't OOM
+            opt = bnb.optim.PagedAdamW8bit(self.lm.parameters(), lr=lr_eff)   # beside the model + activations
+        else:
+            opt = torch.optim.AdamW(self.lm.parameters(), lr=lr_eff)
         self.lm.train(); used = 0
         for step in range(1, max_steps + 1):
             lf = F.cross_entropy(self.lm(fact_ids[:, :-1]).reshape(-1, H.VOC), fact_ids[:, 1:].reshape(-1))
