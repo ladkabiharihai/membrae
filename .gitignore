@@ -35,3 +35,4 @@ bench_result.json
 *_probe_ckpt.pt
 *_state.json
 lc_fig.html
+arch_fig.html
