@@ -210,6 +210,22 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
     <div class="abl-meter"><div class="abl-fill" id="ablFill"></div><div class="abl-base"></div><div class="abl-num" id="ablNum">25</div></div>
     <div class="verdict good" id="ablVerd">baseline &mdash; both on (ppl 25). Now switch the spin carrier off&hellip;</div>
   </div>
+  <div class="card" style="margin-top:22px;max-width:760px"><h3>And it isn't "the transformer just hasn't trained yet"</h3>
+    <div class="cap">both trained to convergence on the <b>same</b> schedule &amp; batches, each at its own best learning rate (val ppl, log scale)</div>
+    <svg viewBox="0 0 700 288" style="width:100%;height:auto;margin-top:6px" font-family="Inter,sans-serif">
+    <line x1="70" y1="250" x2="680" y2="250" stroke="rgba(255,255,255,.07)"/><text x="62" y="254" text-anchor="end" font-size="12" fill="#6b76a0">50</text><line x1="70" y1="188" x2="680" y2="188" stroke="rgba(255,255,255,.07)"/><text x="62" y="192" text-anchor="end" font-size="12" fill="#6b76a0">100</text><line x1="70" y1="126" x2="680" y2="126" stroke="rgba(255,255,255,.07)"/><text x="62" y="130" text-anchor="end" font-size="12" fill="#6b76a0">200</text><line x1="70" y1="64" x2="680" y2="64" stroke="rgba(255,255,255,.07)"/><text x="62" y="68" text-anchor="end" font-size="12" fill="#6b76a0">400</text>
+    <line x1="70" y1="250" x2="680" y2="250" stroke="rgba(255,255,255,.2)"/>
+    <text x="70" y="274" font-size="12" fill="#6b76a0">0</text>
+    <text x="680" y="274" text-anchor="end" font-size="12" fill="#6b76a0">117M tokens</text>
+    <text x="30" y="26" font-size="12" fill="#6b76a0">val ppl</text>
+    <polyline points="102,41 134,63 166,77 198,89 231,96 263,100 295,103 327,107 359,108 391,112 423,114 455,116 487,116 519,117 552,119 584,116 616,119 648,119 680,117" fill="none" stroke="#ff7ac2" stroke-width="3"/>
+    <polyline points="102,106 134,132 166,144 198,159 231,176 263,183 295,191 327,198 359,204 391,207 423,213 455,218 487,223 519,229 552,235 584,237 616,238 648,239 680,239" fill="none" stroke="#23d5ab" stroke-width="3"/>
+    <circle cx="680" cy="117" r="5" fill="#ff7ac2"/><text x="668" y="108" text-anchor="end" font-size="14" font-weight="700" fill="#ff7ac2">Transformer 222</text>
+    <circle cx="680" cy="239" r="5" fill="#23d5ab"/><text x="668" y="259" text-anchor="end" font-size="14" font-weight="700" fill="#23d5ab">Spin-dominant 56</text>
+    <text x="375" y="50" text-anchor="middle" font-size="12.5" font-style="italic" fill="#9aa6c8">gap 2.1× → 3.9×  it widens with training</text>
+    </svg>
+    <div class="verdict good">The transformer flattens at ~222 while spin descends to ~56  the gap <b>widens</b> through training (2.1× → 3.95×). Given a full, fair schedule the transformer doesn't catch up; it plateaus far higher.</div>
+  </div>
 </div></section>
 
 <!-- FACULTIES -->
