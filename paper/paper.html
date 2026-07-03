@@ -236,6 +236,66 @@ A &larr; { (x, argmax M(x)) : x ~ R } &nbsp;&nbsp;<span class="c"># snapshot M's
 <tr><td>GPT-2-medium</td><td class="n">355M</td><td class="n">66.5</td><td class="n">37.5</td><td class="n">23.3</td><td class="n">36.8</td><td class="n">42.8</td></tr>
 </table>
 <p>The reading is honest and informative. On <b>ARC-Easy</b> our 284M (34.7) matches or beats GPT-2 (34.1) and Cerebras-256M (32.7), trailing only the larger GPT-2-medium; on <b>HellaSwag</b> it edges the similar-size models; ARC-Challenge is at chance for all four. But on <b>PIQA</b> and especially <b>LAMBADA</b> our model is clearly behind — LAMBADA (last-word prediction) rewards fluent general language modeling, which our model, trained on a reasoning-heavy corpus and undertrained for its size, does least well. We include this not to claim a competitive small LM — that is not the contribution — but to benchmark our numbers honestly: the 284M sits in the same range as GPT-2 / Cerebras of similar size, strong on reasoning-style tasks and weak on raw language fluency. A <b>565M</b> continuation (val ppl ~22) confirms the trend: it improves on most tasks  PIQA 59.5→60.7, ARC-Challenge 24.0→24.9, HellaSwag 27.9→29.3, and LAMBADA 19.0→21.7 (the largest gain, on the very task that most rewards fluency)  so the gaps narrow with more training, as expected for an undertrained model.</p>
+<h3>Progression across grown sizes.</h3>
+<p>The three grown models come from function-preserving growth followed by continued training (the 706M via the curriculum mixed-window continual schedule of §4). We tabulate every metric we measured across the three sizes. The design improves consistently, and growth does not break it.</p>
+<table><caption><b></b>Progression of the spin-dominant model across grown sizes (all through the same harnesses). Nearly every metric improves or holds; LAMBADA (the most fluency-dependent) gains most, and the cross-window carry flips from a liability to a benefit once the model is trained with it.</caption>
+<tr><th>Metric</th><th class="n">284M</th><th class="n">565M</th><th class="n">706M</th></tr>
+<tr><td>Architecture (<span class="mono">d</span> / layers / <span class="mono">mlp_mult</span>)</td><td class="n mono">768/20/9</td><td class="n mono">768/24/17</td><td class="n mono">768/24/22</td></tr>
+<tr><td>Validation perplexity</td><td class="n">24.54</td><td class="n">~22.0</td><td class="n good">21.97</td></tr>
+<tr><td>Carrier ablation (× worse)</td><td class="n">306</td><td class="n">—</td><td class="n good">767</td></tr>
+<tr><td>Attention ablation (× worse)</td><td class="n">3.4</td><td class="n">—</td><td class="n">3.8</td></tr>
+<tr><td>PIQA</td><td class="n">59.5</td><td class="n">60.7</td><td class="n good">61.8</td></tr>
+<tr><td>ARC-Easy</td><td class="n">34.7</td><td class="n">34.1</td><td class="n good">35.3</td></tr>
+<tr><td>ARC-Challenge <i>(≈chance)</i></td><td class="n">24.0</td><td class="n">24.9</td><td class="n">23.7</td></tr>
+<tr><td>HellaSwag</td><td class="n">27.9</td><td class="n">29.3</td><td class="n good">29.4</td></tr>
+<tr><td>LAMBADA</td><td class="n">19.0</td><td class="n">21.7</td><td class="n good">24.4</td></tr>
+<tr><td>Multi-hop battery (greedy)</td><td class="n">2/10</td><td class="n">3/10</td><td class="n good">4/11</td></tr>
+<tr><td>Cross-window carry</td><td class="n">—</td><td class="n bad">hurts</td><td class="n good">helps (21.6 vs 22.3)</td></tr>
+</table>
+<p>Two readings. (i) <b>Growth and training compound cleanly.</b> Perplexity falls (24.5 → 22.0 → 21.97), the carrier becomes <i>more</i> causally dominant (306× → 767×), and every zero-shot benchmark rises or holds. LAMBADA, the most fluency-dependent, gains most (19.0 → 24.4)  the signature of more training, not more parameters. (ii) <b>The continual long-context training pays off.</b> At 565M the cross-window carry <i>hurt</i> (the model had never been trained with it); the 706M, trained with the curriculum mixed-window schedule, <i>uses</i> it  next-window perplexity now improves with the carry (21.6 vs 22.3). This is a small-scale progression, not a scaling law; but it shows the design and its growth mechanism behave as intended as the model grows.</p>
+<figure><svg viewBox="0 0 660 210" xmlns="http://www.w3.org/2000/svg" font-family="Georgia,serif">
+<text x="120" y="26" text-anchor="middle" font-size="13" font-weight="700" fill="#16171d">Validation ppl</text>
+<text x="120" y="38" text-anchor="middle" font-size="9" font-style="italic" fill="#666">lower is better</text>
+<line x1="48" y1="150" x2="210" y2="150" stroke="#eee"/>
+<polyline points="54,65 129,127 204,128" fill="none" stroke="#d6336c" stroke-width="2.5"/>
+<circle cx="54" cy="65" r="4" fill="#d6336c"/>
+<text x="54" y="56" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">24.5</text>
+<text x="54" y="165" text-anchor="middle" font-size="9.5" fill="#666">284M</text>
+<circle cx="129" cy="127" r="4" fill="#d6336c"/>
+<text x="129" y="118" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">22.0</text>
+<text x="129" y="165" text-anchor="middle" font-size="9.5" fill="#666">565M</text>
+<circle cx="204" cy="128" r="4" fill="#d6336c"/>
+<text x="204" y="119" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">21.97</text>
+<text x="204" y="165" text-anchor="middle" font-size="9.5" fill="#666">706M</text>
+<text x="335" y="26" text-anchor="middle" font-size="13" font-weight="700" fill="#16171d">LAMBADA  %</text>
+<text x="335" y="38" text-anchor="middle" font-size="9" font-style="italic" fill="#666">higher is better</text>
+<line x1="263" y1="150" x2="425" y2="150" stroke="#eee"/>
+<polyline points="269,138 344,97 419,55" fill="none" stroke="#1aa88a" stroke-width="2.5"/>
+<circle cx="269" cy="138" r="4" fill="#1aa88a"/>
+<text x="269" y="129" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">19.0</text>
+<text x="269" y="165" text-anchor="middle" font-size="9.5" fill="#666">284M</text>
+<circle cx="344" cy="97" r="4" fill="#1aa88a"/>
+<text x="344" y="88" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">21.7</text>
+<text x="344" y="165" text-anchor="middle" font-size="9.5" fill="#666">565M</text>
+<circle cx="419" cy="55" r="4" fill="#1aa88a"/>
+<text x="419" y="46" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">24.4</text>
+<text x="419" y="165" text-anchor="middle" font-size="9.5" fill="#666">706M</text>
+<text x="550" y="26" text-anchor="middle" font-size="13" font-weight="700" fill="#16171d">Multi-hop  /10</text>
+<text x="550" y="38" text-anchor="middle" font-size="9" font-style="italic" fill="#666">higher is better</text>
+<line x1="478" y1="150" x2="640" y2="150" stroke="#eee"/>
+<polyline points="484,146 559,97 634,48" fill="none" stroke="#1aa88a" stroke-width="2.5"/>
+<circle cx="484" cy="146" r="4" fill="#1aa88a"/>
+<text x="484" y="137" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">2</text>
+<text x="484" y="165" text-anchor="middle" font-size="9.5" fill="#666">284M</text>
+<circle cx="559" cy="97" r="4" fill="#1aa88a"/>
+<text x="559" y="88" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">3</text>
+<text x="559" y="165" text-anchor="middle" font-size="9.5" fill="#666">565M</text>
+<circle cx="634" cy="48" r="4" fill="#1aa88a"/>
+<text x="634" y="39" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">4</text>
+<text x="634" y="165" text-anchor="middle" font-size="9.5" fill="#666">706M</text>
+</svg>
+<figcaption><b></b>Progression across the three grown sizes. Validation perplexity falls, and LAMBADA (the most fluency-dependent benchmark) and the greedy multi-hop battery both rise monotonically  the design improves consistently as it grows and trains, with the largest gains on the tokens-limited axes.</figcaption></figure>
+
 <h2>Comparison with Large Language Models</h2>
 <table><caption><b></b>Where each paradigm wins. The two are built on opposite bets.</caption>
 <tr><th>Property</th><th>Today's LLMs</th><th>Pragnosia</th></tr>

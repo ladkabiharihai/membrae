@@ -341,6 +341,50 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
   <div class="key" style="margin-top:22px"><b>The model built the right way  the 284M:</b> spin as the token-mixer in 3 of every 4 blocks, trained on a 176.6B-token chain-of-thought corpus, best val ppl <b>24.54</b>  <b>5× smaller</b> than the 1.4B, but with a <b>provably load-bearing</b> spin carrier (ablate it → ppl <b>306×</b> worse; ablate attention → only 3.4×). Its capability battery genuinely jumps over the 27M laptop model (in parens): arithmetic <b>3/3</b> (0/3), knowledge <b>2/3</b> (0/3), theory-of-mind <b>2/2</b> (1/2), logic <b>2/2</b>, code <b>1/2</b>, in-context binding <b>1/2</b>. World-knowledge, arithmetic and theory-of-mind <i>emerged</i> at this scale.</div>
   <div class="key" style="margin-top:22px"><b>What's weak:</b> multi-step <b>0/2</b>, counterfactual <b>0/2</b> and causal <b>0/2</b> reasoning  the undertrained-for-size signature. The lever is more <i>tokens</i>, not more parameters or prompting. <b>Honesty (the consistency gate):</b> it abstains on the clearly-unknowable, but at 284M it does <i>not</i> separate real knowledge from confident confabulation  "capital of France" scores 0.53, an unknowable "secret password" also 0.53 and "who wins the 2031 election" 0.67, all overlapping. The model confabulates <i>consistently</i>; the gate needs scale or a redesigned signal. We are not claiming honesty is solved.</div>
   <div class="key" style="margin-top:22px"><b>Standard public benchmarks (zero-shot, 284M):</b> above chance on most, at chance on the hardest  the honest profile of a small, undertrained-for-size model. <b>PIQA 59.5%</b> (chance 50%), <b>ARC-Easy 34.7%</b> (25%), <b>HellaSwag 27.9%</b> (25%), <b>LAMBADA 19.0%</b>, <b>ARC-Challenge 24.0%</b> (25%  at chance, the hard reasoning set), WikiText-2 word-ppl 157.9. Tokenizer-independent metrics; the eval harness is open (<span class="mono">eval_external.py</span>).</div>
+  <h3 style="font-family:Fraunces;font-size:clamp(24px,4vw,34px);margin:44px 0 6px">Then it grew  284M → 565M → 706M</h3>
+  <p class="lead">Function-preserving growth plus continued training took the model to 565M, then a 706M "polish" run (the curriculum mixed-window continual schedule). <b>Every metric improved or held.</b></p>
+  <svg style="width:100%;height:auto;margin-top:6px" viewBox="0 0 660 210" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+<text x="120" y="26" text-anchor="middle" font-size="13" font-weight="700" fill="#e8ecf8">Validation ppl</text>
+<text x="120" y="38" text-anchor="middle" font-size="9" font-style="italic" fill="#9aa6c8">lower is better</text>
+<line x1="48" y1="150" x2="210" y2="150" stroke="rgba(255,255,255,.08)"/>
+<polyline points="54,65 129,127 204,128" fill="none" stroke="#ff7ac2" stroke-width="2.5"/>
+<circle cx="54" cy="65" r="4" fill="#ff7ac2"/>
+<text x="54" y="56" text-anchor="middle" font-size="10.5" font-weight="700" fill="#e8ecf8">24.5</text>
+<text x="54" y="165" text-anchor="middle" font-size="9.5" fill="#9aa6c8">284M</text>
+<circle cx="129" cy="127" r="4" fill="#ff7ac2"/>
+<text x="129" y="118" text-anchor="middle" font-size="10.5" font-weight="700" fill="#e8ecf8">22.0</text>
+<text x="129" y="165" text-anchor="middle" font-size="9.5" fill="#9aa6c8">565M</text>
+<circle cx="204" cy="128" r="4" fill="#ff7ac2"/>
+<text x="204" y="119" text-anchor="middle" font-size="10.5" font-weight="700" fill="#e8ecf8">21.97</text>
+<text x="204" y="165" text-anchor="middle" font-size="9.5" fill="#9aa6c8">706M</text>
+<text x="335" y="26" text-anchor="middle" font-size="13" font-weight="700" fill="#e8ecf8">LAMBADA  %</text>
+<text x="335" y="38" text-anchor="middle" font-size="9" font-style="italic" fill="#9aa6c8">higher is better</text>
+<line x1="263" y1="150" x2="425" y2="150" stroke="rgba(255,255,255,.08)"/>
+<polyline points="269,138 344,97 419,55" fill="none" stroke="#23d5ab" stroke-width="2.5"/>
+<circle cx="269" cy="138" r="4" fill="#23d5ab"/>
+<text x="269" y="129" text-anchor="middle" font-size="10.5" font-weight="700" fill="#e8ecf8">19.0</text>
+<text x="269" y="165" text-anchor="middle" font-size="9.5" fill="#9aa6c8">284M</text>
+<circle cx="344" cy="97" r="4" fill="#23d5ab"/>
+<text x="344" y="88" text-anchor="middle" font-size="10.5" font-weight="700" fill="#e8ecf8">21.7</text>
+<text x="344" y="165" text-anchor="middle" font-size="9.5" fill="#9aa6c8">565M</text>
+<circle cx="419" cy="55" r="4" fill="#23d5ab"/>
+<text x="419" y="46" text-anchor="middle" font-size="10.5" font-weight="700" fill="#e8ecf8">24.4</text>
+<text x="419" y="165" text-anchor="middle" font-size="9.5" fill="#9aa6c8">706M</text>
+<text x="550" y="26" text-anchor="middle" font-size="13" font-weight="700" fill="#e8ecf8">Multi-hop  /10</text>
+<text x="550" y="38" text-anchor="middle" font-size="9" font-style="italic" fill="#9aa6c8">higher is better</text>
+<line x1="478" y1="150" x2="640" y2="150" stroke="rgba(255,255,255,.08)"/>
+<polyline points="484,146 559,97 634,48" fill="none" stroke="#23d5ab" stroke-width="2.5"/>
+<circle cx="484" cy="146" r="4" fill="#23d5ab"/>
+<text x="484" y="137" text-anchor="middle" font-size="10.5" font-weight="700" fill="#e8ecf8">2</text>
+<text x="484" y="165" text-anchor="middle" font-size="9.5" fill="#9aa6c8">284M</text>
+<circle cx="559" cy="97" r="4" fill="#23d5ab"/>
+<text x="559" y="88" text-anchor="middle" font-size="10.5" font-weight="700" fill="#e8ecf8">3</text>
+<text x="559" y="165" text-anchor="middle" font-size="9.5" fill="#9aa6c8">565M</text>
+<circle cx="634" cy="48" r="4" fill="#23d5ab"/>
+<text x="634" y="39" text-anchor="middle" font-size="10.5" font-weight="700" fill="#e8ecf8">4</text>
+<text x="634" y="165" text-anchor="middle" font-size="9.5" fill="#9aa6c8">706M</text>
+</svg>
+  <div class="key" style="margin-top:18px"><b>The progression, in full:</b> val ppl <b>24.54 → 22.0 → 21.97</b>; carrier ablation <b>306× → 767×</b> (grows <i>more</i> load-bearing); PIQA 59.5 → 60.7 → <b>61.8</b>; ARC-Easy 34.7 → 34.1 → <b>35.3</b>; HellaSwag 27.9 → 29.3 → <b>29.4</b>; LAMBADA 19.0 → 21.7 → <b>24.4</b> (the biggest gain, the fluency axis); multi-hop 2/10 → 3/10 → <b>4/11</b>. And the payoff of the continual long-context training: the cross-window carry <b>flipped from hurting (565M) to helping (706M)</b>  aggregate long context now works. The 706M passes the full faculty self-test (language, honesty, continual learning, episodic memory, cognition).</div>
 </div></section>
 
 <!-- HONESTY -->

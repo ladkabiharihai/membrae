@@ -36,3 +36,5 @@ bench_result.json
 *_state.json
 lc_fig.html
 arch_fig.html
+prog_fig.html
+prog_fig_site.svg
