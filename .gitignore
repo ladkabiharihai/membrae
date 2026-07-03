@@ -1,4 +1,4 @@
-# trained weights & caches (regenerate via training) — too large for git
+# trained weights & caches (regenerate via training)  too large for git
 *.pt
 pragnosia_id_*.pt
 
@@ -34,3 +34,4 @@ conversation_log.json
 bench_result.json
 *_probe_ckpt.pt
 *_state.json
+lc_fig.html
