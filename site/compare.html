@@ -89,23 +89,23 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
 <header><div class="wrap">
   <span class="kicker">Honest comparison</span>
   <h1>Pragnosia <span class="g">vs.</span> today's LLMs</h1>
-  <p class="lead">A spinning brain and a GPT-style model are built on opposite bets. Here is exactly where each one wins  and where each one loses. No spin (well… some spin).</p>
+  <p class="lead">A spinning brain and a GPT-style model are built on different design bets. Here is exactly where each one wins  and where each one loses. No spin (well… some spin).</p>
 </div></header>
 
 <!-- core difference -->
 <section><div class="wrap reveal">
   <div class="tag">The fundamental difference</div>
-  <h2>Two opposite bets about thinking</h2>
+  <h2>Two different bets about sequence modeling</h2>
   <div class="vs">
     <div class="vcard llm"><div class="t">Today's LLMs</div><h3>Predict the next word, at huge scale</h3>
       <ul>
         <li><b>Settle</b> on a representation in one forward pass  attention looks up patterns.</li>
-        <li><b>Frozen after training.</b> Learning new facts means fine-tuning or stuffing them into the prompt.</li>
+        <li><b>Base pretrained weights are frozen after training (system-level memory/retrieval aside).</b> Learning new facts means fine-tuning or stuffing them into the prompt.</li>
         <li><b>Knowledge lives in billions of weights</b>  vast, but fixed and hard to inspect.</li>
-        <li><b>Confidence is bolted on</b>  they often state wrong things fluently.</li>
+        <li><b>Uncalibrated confidence in the base weights</b>  they often state wrong things fluently.</li>
         <li><b>Power from scale</b>: trillions of tokens, billions–trillions of parameters.</li>
       </ul></div>
-    <div class="vcard prg"><div class="t">Pragnosia</div><h3>Spin as the core mixer, and keep living</h3>
+    <div class="vcard prg"><div class="t">Pragnosia</div><h3>Spin as the core mixer, and keep adapting</h3>
       <ul>
         <li><b>Spins</b>  a transformer/SSM hybrid (à la Mamba/RWKV) where a diagonal-complex rotational recurrence (a parallel associative scan) is the <i>core token-mixer</i>, carrying state in its <i>phase</i>.</li>
         <li><b>Continual.</b> Learns new facts online and remembers them across sessions  no retraining.</li>
@@ -129,8 +129,8 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
     <div class="row"><div class="feat">Abstains (signal scale-limited)</div><div class="llmcol"><span class="part">Partial</span>, bolted on</div><div class="prgcol"><span class="part">Partial</span>  abstains, not solved</div></div>
     <div class="row"><div class="feat">Learn after training (no retrain)</div><div class="llmcol"><span class="no">No</span>  frozen</div><div class="prgcol"><span class="yes">Yes</span>  continuous, persistent</div></div>
     <div class="row"><div class="feat">Forgetting when updated</div><div class="llmcol"><span class="no">Catastrophic</span></div><div class="prgcol"><span class="yes">Low</span>  replay + plasticity</div></div>
-    <div class="row"><div class="feat">Self-paced learning rate</div><div class="llmcol"><span class="no">Fixed schedule</span></div><div class="prgcol"><span class="yes">Surprise-modulated</span> (brain-like)</div></div>
-    <div class="row"><div class="feat">Knows itself</div><div class="llmcol"><span class="part">Scripted</span></div><div class="prgcol"><span class="yes">From its own weights</span></div></div>
+    <div class="row"><div class="feat">Self-paced learning rate</div><div class="llmcol"><span class="no">Fixed schedule</span></div><div class="prgcol"><span class="yes">Surprise-modulated</span> (neuromodulation-inspired)</div></div>
+    <div class="row"><div class="feat">Self-estimate</div><div class="llmcol"><span class="part">Scripted</span></div><div class="prgcol"><span class="yes">From its own weights</span></div></div>
     <div class="row"><div class="feat">Size / cost</div><div class="llmcol"><span class="no">Huge</span> (data-center)</div><div class="prgcol"><span class="yes">Tiny</span> (one laptop)</div></div>
     <div class="row"><div class="feat">Hardcoded behavior</div><div class="llmcol"></div><div class="prgcol"><span class="yes">None</span>  all self-derived</div></div>
   </div>
@@ -146,7 +146,7 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
       <li><b>Abstains, honestly</b>  says “I don't know” on the clearly-unknowable; it does <i>not</i> yet catch confident-but-wrong facts (honesty is an open problem at this scale).</li>
       <li><b>A rigorous causal probe</b>  we measure whether the carrier is actually used: a carried-state transplant on single-carrier models (which caught the 1.4B side-channel drift below) and direct ablation on the spin-dominant design (which showed the 284M carrier is load-bearing, 306×).</li>
       <li><b>Tiny &amp; cheap</b>  runs and trains on a single laptop GPU; ~700 MB on disk.</li>
-      <li><b>Brain-like learning</b>  surprise-modulated plasticity: learns hard on the new, gently on the familiar.</li>
+      <li><b>Biology-inspired learning</b>  surprise-modulated plasticity: learns hard on the new, gently on the familiar.</li>
       <li><b>Nothing hardcoded</b>  what matters, when to abstain, what to recall: all derived from data, re-tuned as it grows.</li>
     </ul></div>
     <div class="col cons"><h3>Where it loses (for now)</h3><ul>
@@ -164,7 +164,7 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
 <section><div class="wrap reveal">
   <div class="bottom">
     <h3>The bottom line</h3>
-    <p>An LLM is a <b>brilliant, frozen library</b>  enormous knowledge, but it stops learning the day training ends and will fluently invent an answer rather than admit ignorance. Pragnosia is a <b>tiny, persistent continual learner</b>  it knows far less, but it <b>keeps learning across sessions, tries to abstain at the edge of its knowledge (imperfectly), and carries its computation in a spinning state we can causally probe</b>. It's a transformer/SSM hybrid where spin is meant to be the core mixer  and our honest, measured finding is that it's most parameter-efficient exactly when spin <i>is</i> the core, now shown at <b>284M</b> where the spin carrier is provably load-bearing (a result still to be fully proven multi-seed at 1B). The bet: alive, honest, and causally-probeable are what a frozen trillion-parameter model fundamentally lacks. Scale makes a better library; this is an attempt at a better <i>brain</i>.</p>
+    <p>An LLM is a <b>brilliant, frozen library</b>  enormous knowledge, but its base weights stop learning the day pretraining ends and will fluently invent an answer rather than admit ignorance. Pragnosia is a <b>tiny, persistent continual learner</b>  it knows far less, but it <b>keeps learning across sessions, tries to abstain at the edge of its knowledge (imperfectly), and carries its computation in a spinning state we can causally probe</b>. It's a transformer/SSM hybrid where spin is meant to be the core mixer  and our honest, measured finding is that it's most parameter-efficient exactly when spin <i>is</i> the core, now shown at <b>284M</b> where the spin carrier is provably load-bearing (a result still to be fully proven multi-seed at 1B). The bet: persistent, honest, and causally-probeable are what a frozen trillion-parameter model fundamentally lacks. Scale makes a better library; this is an attempt at a better <i>brain</i>.</p>
   </div>
 </div></section>
 

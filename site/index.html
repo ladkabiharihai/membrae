@@ -231,7 +231,7 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
 <!-- FACULTIES -->
 <section id="faculties"><div class="wrap reveal">
   <div class="tag">What it can do</div>
-  <h2>A model plus a living controller</h2>
+  <h2>A model plus an adaptive controller</h2>
   <p class="lead">The spinning model is wrapped by <span class="mono">brain.py</span>  a living controller with <b>nothing hardcoded</b>. Everything below is real code, not a roadmap.</p>
   <div class="fac-grid">
     <div class="fac"><div class="ic">🌀</div><h4>Reasons in motion</h4><p>Its core token-mixer is the spinning carrier; the computation rides in phase. Ablation confirms it's the load-bearing core, not a memorized lookup.</p><div class="pf">ablation 306× ✓</div></div>
@@ -247,7 +247,7 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
 
 <!-- TEACH DEMO -->
 <section style="background:var(--bg2)"><div class="wrap reveal">
-  <div class="tag">The “alive” part</div>
+  <div class="tag">The adaptive-learning part</div>
   <h2>It learns while you talk to it</h2>
   <p class="lead">No retraining. You tell it something new, it decides on its own that it's worth learning, and it persists it across sessions.</p>
   <div class="teach" id="teach">
@@ -365,7 +365,7 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
   <div class="tl">
     <div class="tl-item"><div class="st">NOW</div><h4>Rebuild spin-dominant at scale  first proof in</h4><p>The ablation said the core mixer should be <b>spin, not attention</b>, and the new <b>284M</b> spin-dominant run confirms it: the carrier is load-bearing (ablate it → 306× worse). Next is to push to <b>1B</b>  the param-efficiency win is now <b>multi-seed-confirmed</b> (3 seeds; a real no-phase carrier as the core also wins), so the remaining step is the 1B replication of the at-scale signal  and to re-calibrate the over-conservative chat honesty gate for the stronger model.</p>
     <div class="tl-item"><div class="st">NEXT</div><h4>Sharper honesty &amp; more data</h4><p>A <span class="num">trained</span> confidence head for crisp “I don't know”, plus far more reasoning-rich data  the real lever for capability.</p></div>
-    <div class="tl-item"><div class="st">THEN</div><h4>Scale the living faculties</h4><p>Continuous learning from 8 facts to <span class="num">thousands</span>, real retrieval (RAG-style seeking), and relational vision &amp; audio at scale.</p></div>
+    <div class="tl-item"><div class="st">THEN</div><h4>Scale the adaptive faculties</h4><p>Continuous learning from 8 facts to <span class="num">thousands</span>, real retrieval (RAG-style seeking), and relational vision &amp; audio at scale.</p></div>
     <div class="tl-item"><div class="st">VISION</div><h4>An always-on, lifelong mind</h4><p>One small brain that runs on your device, keeps learning <i>you</i> forever, never fabricates, and explains its own reasoning.</p></div>
   </div>
 </div></section>
@@ -376,9 +376,9 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
   <h2>What a brain like this is for</h2>
   <p class="lead">The wins aren't “beat GPT at trivia.” They're the things a frozen, cloud-bound model fundamentally can't do.</p>
   <div class="fac-grid">
-    <div class="fac"><div class="ic">📱</div><h4>On-device assistant that learns <i>you</i></h4><p>Runs on a phone or laptop, continually learns your facts and preferences  no cloud, no retraining, nothing leaves the device.</p><div class="pf">tiny · alive · private</div></div>
+    <div class="fac"><div class="ic">📱</div><h4>On-device assistant that learns <i>you</i></h4><p>Runs on a phone or laptop, continually learns your facts and preferences  no cloud, no retraining, nothing leaves the device.</p><div class="pf">tiny · adaptive · private</div></div>
     <div class="fac"><div class="ic">🩺</div><h4>Honest help in high-stakes domains</h4><p>For medicine, law, finance: says “I don't know” and looks it up instead of confidently inventing an answer.</p><div class="pf">abstains · seeks</div></div>
-    <div class="fac"><div class="ic">🤖</div><h4>Lifelong-learning robots &amp; agents</h4><p>Learns from its environment online, driven by its own curiosity, without forgetting what it already knew.</p><div class="pf">alive loop · curiosity</div></div>
+    <div class="fac"><div class="ic">🤖</div><h4>Lifelong-learning robots &amp; agents</h4><p>Learns from its environment online, driven by its own curiosity, without forgetting what it already knew.</p><div class="pf">adaptive loop · curiosity</div></div>
     <div class="fac"><div class="ic">🔒</div><h4>Private, offline, edge AI</h4><p>Cheap enough to run anywhere with no data center  and it learns locally, so your data never has to leave.</p><div class="pf">~700MB · no cloud</div></div>
     <div class="fac"><div class="ic">🔍</div><h4>Auditable, accountable AI</h4><p>Reasoning you can causally probe (carrier ablation)  for settings that demand the model show its work.</p><div class="pf">causal · interpretable</div></div>
     <div class="fac"><div class="ic">🎓</div><h4>Adaptive tutoring &amp; personalization</h4><p>Learns each individual learner continually, adapting to them over months  not a one-size static model.</p><div class="pf">per-user memory</div></div>
