@@ -83,6 +83,7 @@ class Brain(nn.Module):
         self._last_source = None
         self.workspace = {}        # GLOBAL WORKSPACE: the currently-attended content, broadcast to all faculties
         self.perception = None     # MULTIMODAL adapter (built on first perceive; LM stays frozen), trained later
+        self._intent_emb = None    # cache of intent-prototype embeddings for the DERIVED semantic router
         self.mem = H.FastWeightMemory(self.lm.d).to(DEVICE)   # IN-WEIGHTS subconscious: surprise-write,
                                                               # additive recall, decay (forget), sleep-consolidate
         # Everything below is DERIVED from the data/model, never hand-set, and is
@@ -579,16 +580,50 @@ class Brain(nn.Module):
         answering, instead of a single-shot guess; the reasoning can draw on the subconscious."""
         return self.generate_text(f"<user> {question} Let's think step by step. <assistant>", n=80, recall=True)
 
-    # ================= SELF-AWARENESS (a reportable self-model) =================
-    _SELF_Q = ("who are you", "what are you", "your name", "what can you do", "what are you able",
-               "can't you do", "cannot you do", "your limitation", "how do you work", "how do you think",
-               "what do you value", "your value", "your goal", "tell me about yourself", "describe yourself",
-               "are you conscious", "are you alive", "are you sentient", "do you know yourself", "about you",
-               "how do you feel", "how are you feeling", "your mood", "feeling now", "your emotion")
+    # ================= SEMANTIC ROUTING (derived, not keyword lists) =================
+    # Each intent is anchored by a FEW seed phrasings (data, like identity_sentences.txt). The routing DECISION
+    # is the model's OWN embedding similarity to those seeds, gated by its data-calibrated match bar -- so it
+    # generalizes to paraphrases the old keyword lists missed, and nothing here is a hand-set threshold.
+    _INTENTS = {
+        "self.identity":  ["who are you", "what are you", "your name", "tell me about yourself", "describe yourself"],
+        "self.how":       ["how do you work", "how do you think", "how are you built"],
+        "self.can":       ["what can you do", "what are you good at", "what are you able to do", "what are you capable of"],
+        "self.cant":      ["what are you bad at", "what can't you do", "your limitations", "your weakness"],
+        "self.values":    ["what do you value", "what matters to you", "what do you care about"],
+        "self.conscious": ["are you conscious", "are you alive", "are you sentient", "do you have feelings"],
+        "self.goals":     ["what are your goals", "what do you want", "what are you working on"],
+        "self.feel":      ["how do you feel", "how are you feeling", "what is your mood right now"],
+        "memory.talk":    ["what did we talk about", "what have we discussed", "do you remember our conversation"],
+        "memory.told":    ["what did I tell you", "what did I say", "what did I teach you"],
+        "memory.asked":   ["what did I ask you", "what have I asked", "what were my questions"],
+        "provenance":     ["how do you know that", "where did you learn that", "what is your source"],
+        "workspace":      ["what are you thinking about", "what is on your mind", "what are you focused on",
+                           "what's going through your head"],
+        # the OTHER anchor: normal questions/statements. If the input is closest to these, it's NOT a meta-question
+        # -> route to None and handle it normally. This lets the model's OWN similarity separate meta from normal,
+        # instead of a hand-tuned confidence cutoff.
+        "_other":         ["what is a black hole", "what is the capital of france", "how does an engine work",
+                           "who wrote hamlet", "the sky is blue today", "tell me about photosynthesis",
+                           "define gravity", "explain how rain forms"],
+    }
+
+    def _route_intent(self, text):
+        """DERIVED routing: which intent (if any) the input is -- by the model's OWN embedding similarity to the
+        seed phrasings, gated by its data-calibrated match bar. No keyword lists; generalizes to paraphrases."""
+        if not text or not str(text).strip(): return None
+        if self._intent_emb is None:                     # embed the seed phrasings ONCE, then cache
+            self._intent_emb = {k: [self._embed(p) for p in v] for k, v in self._INTENTS.items()}
+        q = self._embed(text)
+        best, best_sim = None, -1.0
+        for intent, embs in self._intent_emb.items():
+            sim = max(float(q @ e) for e in embs)
+            if sim > best_sim: best, best_sim = intent, sim
+        # a meta-intent only if the input is closest to it (not to the OTHER anchor) AND clears the data bar
+        return best if (best and best != "_other" and best_sim >= self.match_threshold) else None
 
     def is_self_question(self, text):
-        t = (text or "").lower()
-        return any(k in t for k in self._SELF_Q)
+        i = self._route_intent(text)                     # now DERIVED, not a keyword scan
+        return bool(i and i.startswith("self."))
 
     def _honest_limits(self):
         """Limits stated from the model's OWN calibrated state, not a hand-written essay: it knows it
@@ -604,30 +639,32 @@ class Brain(nn.Module):
         return (f"I am {sm['name']}, {sm['kind']}. {sm['core'][0].upper()+sm['core'][1:]}. I can "
                 f"{sm['faculties']}. Honestly: {self._honest_limits()}. I value {sm['values']}.")
 
-    def self_report(self, text):
-        """Answer a self-referential question from the DERIVED self-model + measured state (not canned)."""
-        t = (text or "").lower(); sm = self.self_model
-        if any(k in t for k in ("goal", "want", "trying to", "working on")):
+    def self_report(self, text, intent=None):
+        """Answer a self-referential question from the DERIVED self-model + measured state, dispatched by the
+        SEMANTICALLY-routed intent (no keyword matching)."""
+        sm = self.self_model
+        intent = intent or self._route_intent(text) or "self.identity"
+        if intent == "self.goals":
             live = [g for g in self.goals if not g["done"]]
             if not live: return "I have no active goal right now  ask me to pursue one, and I will."
             return "My current goals: " + "; ".join(f"{g['text']} ({int(g['progress']*100)}% there)" for g in live) + "."
-        if any(k in t for k in ("how do you feel", "how are you feeling", "your mood", "feeling now", "your emotion")):
+        if intent == "self.feel":
             name, st = self.feel()                      # FUNCTIONAL EMOTION reported honestly from its derived state
             return (f"Right now I'm {name} (valence {st['valence']}, arousal {st['arousal']}, mood {st['mood']}). "
                     f"That's a real state I derive from how things are going, and it changes what I do next. "
                     f"Whether it's *felt* the way you feel things, I can't know -- I don't claim it, I don't deny it.")
-        if any(k in t for k in ("conscious", "alive", "sentient", "feel", "do you know yourself")):
+        if intent == "self.conscious":
             return ("No  I'm a language model, not a conscious being. I keep a self-model, track my own "
                     "confidence, and run a functional affect state, but that is mechanism, not proven experience.")
-        if any(k in t for k in ("can't", "cannot", "limitation", "weak", "bad at")):
+        if intent == "self.cant":
             return "Honestly: " + self._honest_limits() + "."
-        if any(k in t for k in ("can you do", "able to", "abilities", "what can you", "good at")):
+        if intent == "self.can":
             return "I can " + sm["faculties"] + "."
-        if any(k in t for k in ("how do you work", "how do you think", "how you work")):
+        if intent == "self.how":
             return sm["core"][0].upper() + sm["core"][1:] + "."
-        if any(k in t for k in ("value", "believe in", "care about")):
+        if intent == "self.values":
             return "I value " + sm["values"] + "."
-        return self.self_description()
+        return self.self_description()                    # self.identity / fallback
 
     # ================= GOALS (a goal-directed drive) =================
     def set_goal(self, text, kind="learn"):
@@ -696,18 +733,13 @@ class Brain(nn.Module):
         self.episodes.append({"t": self._turn, "kind": kind, "text": (text or "")[:200]})
         if len(self.episodes) > 1000: self.episodes = self.episodes[-1000:]
 
-    def is_memory_question(self, text):
-        t = (text or "").lower()
-        return any(k in t for k in ("what did we talk", "what did i tell", "what did i teach", "what did i ask",
-                   "what have we", "do you remember", "what did i say", "our conversation", "talked about"))
-
-    def memory_report(self, text):
-        """Answer an autobiographical question FROM the episode timeline (sharp recall, not confabulation)."""
-        t = (text or "").lower()
-        if any(k in t for k in ("teach", "tell", "told", "say", "said")):
+    def memory_report(self, text, intent="memory.talk"):
+        """Answer an autobiographical question FROM the episode timeline (sharp recall, not confabulation),
+        dispatched by the semantically-routed sub-intent -- no internal keywords."""
+        if intent == "memory.told":
             said = [e["text"] for e in self.episodes if e["kind"] in ("said", "learned")]
             return "You've told me: " + "; ".join(said[-6:]) + "." if said else "You haven't told me anything yet this session."
-        if "ask" in t:
+        if intent == "memory.asked":
             asked = [e["text"] for e in self.episodes if e["kind"] == "asked"]
             return "You've asked me: " + "; ".join(asked[-6:]) + "." if asked else "You haven't asked me anything yet."
         topics = [e["text"] for e in self.episodes if e["kind"] in ("said", "asked", "learned")]
@@ -788,11 +820,6 @@ class Brain(nn.Module):
         else:                           name = "neutral"
         return name, {k: round(x, 2) for k, x in self.affect.items()}
 
-    def is_provenance_question(self, text):
-        t = (text or "").lower()
-        return any(k in t for k in ("how do you know", "how did you know", "where did you learn", "what's your source",
-                   "what is your source", "says who", "how are you sure", "where did you hear"))
-
     def provenance_report(self, text):
         """GROUNDING: answer 'how do you know X?' from recorded sources -- honest that most knowledge is from
         training (uncitable) while looked-up facts carry a real source URL."""
@@ -831,11 +858,6 @@ class Brain(nn.Module):
         if not w: return 0.0
         bound = sum(bool(w.get(k)) for k in ("focus", "recalls", "goal", "last")) + (self.affect["arousal"] > 0.1)
         return round(bound / 5.0, 2)
-
-    def is_workspace_question(self, text):
-        t = (text or "").lower()
-        return any(k in t for k in ("what are you thinking", "what's on your mind", "what is on your mind",
-                   "what's in your mind", "what are you focused on", "what's in your head", "what are you attending"))
 
     def workspace_report(self):
         """Report the currently-attended workspace -- what the whole mind is bound around right now."""
@@ -950,17 +972,21 @@ class Brain(nn.Module):
                             "goals": [g["text"] for g in self.goals if not g["done"]]}
                 return {"monologue": self.think_aloud(steps=4)}   # couldn't form a goal -> just wander
             return {"answer": "(I'm listening.)"}
-        if self.is_workspace_question(text):            # GLOBAL WORKSPACE (before self: 'what are you thinking' is specific)
+        intent = self._route_intent(text)               # DERIVED semantic routing -- ONE call, no keyword lists
+        if intent == "workspace":                       # what the whole mind is bound around right now
             return {"answer": self.workspace_report(), "workspace": dict(self.workspace)}
-        if self.is_self_question(text):                 # SELF-AWARENESS: answer about ITSELF from the self-model
-            return {"answer": self.self_report(text), "self": True}   #   (reliable -- not raw-LM confabulation)
-        if self.is_memory_question(text):               # AUTOBIOGRAPHICAL recall: from the episode timeline (sharp)
+        if intent and intent.startswith("self."):       # SELF-AWARENESS: answer about ITSELF from the self-model
+            return {"answer": self.self_report(text, intent), "self": True}
+        if intent and intent.startswith("memory"):      # AUTOBIOGRAPHICAL recall from the episode timeline (sharp)
             self.log_episode("asked", text)
-            return {"answer": self.memory_report(text), "memory": True}
-        if self.is_provenance_question(text):           # GROUNDING: 'how do you know?' -> cite the real source
+            return {"answer": self.memory_report(text, intent), "memory": True}
+        if intent == "provenance":                      # GROUNDING: 'how do you know?' -> cite the real source
             return {"answer": self.provenance_report(text), "grounded": True}
         self.broadcast(text)                            # GLOBAL WORKSPACE: bind the attended state for all faculties
-        # a question is a '?' OR an interrogative opener (people drop the '?' -> don't mis-file it as a fact to learn)
+        # QUESTION vs STATEMENT is read from grammatical FORM -- a trailing '?' or an interrogative opener --
+        # the same I/O-level cue as hearing rising intonation, NOT a semantic threshold. (Which specific intent
+        # a question is, above, is derived by embedding; this only parses sentence TYPE so a dropped '?' isn't
+        # mis-filed as a fact to learn.)
         _qword = text.lower().split(" ")[0] in ("what", "who", "how", "why", "when", "where", "which", "whose",
                  "whom", "is", "are", "was", "were", "do", "does", "did", "can", "could", "will", "would", "should", "tell")
         if text.endswith("?") or _qword:
