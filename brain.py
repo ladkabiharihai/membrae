@@ -71,6 +71,7 @@ class Brain(nn.Module):
         self.self_model = None     # SELF-MODEL: architecture facts DERIVED from the live model (built in
         self.goals = []            #   _derive_self after the LM loads; re-derived on grow). Not hand-set.
         self._gaps = []            # things it honestly couldn't answer -> seeds for self-defined goals
+        self._weight_teach_ok = True   # cleared if backprop OOMs -> fall back to episodic-only learning
         self.mem = H.FastWeightMemory(self.lm.d).to(DEVICE)   # IN-WEIGHTS subconscious: surprise-write,
                                                               # additive recall, decay (forget), sleep-consolidate
         # Everything below is DERIVED from the data/model, never hand-set, and is
@@ -759,6 +760,8 @@ class Brain(nn.Module):
                                          # but not to ~0 -- extreme over-memorizing bleeds
         self._remember(fact, plasticity)  # subconscious: instant, surprise-gated -- recallable now
         self.store.append((fact, self._embed(fact)))
+        if not self._weight_teach_ok:      # backprop already known not to fit this GPU -> episodic memory only
+            return
         fact_ids = torch.tensor([self.tok.encode(fact).ids], device=DEVICE)
         # CONSOLIDATION (generative self-replay): snapshot what the brain ITSELF
         # currently predicts on a few real-text batches, then keep matching those
@@ -781,20 +784,28 @@ class Brain(nn.Module):
         else:
             opt = torch.optim.AdamW(self.lm.parameters(), lr=lr_eff)
         self.lm.train(); used = 0
-        for step in range(1, max_steps + 1):
-            lf = F.cross_entropy(self.lm(fact_ids[:, :-1]).reshape(-1, H.VOC), fact_ids[:, 1:].reshape(-1))
-            xr, yr = H.batch(self._replay, rb)                 # true-corpus replay
-            lr_ = F.cross_entropy(self.lm(xr).reshape(-1, H.VOC), yr.reshape(-1))
-            xa, ta = anchors[step % len(anchors)]              # self-consolidation anchor
-            la = F.cross_entropy(self.lm(xa).reshape(-1, H.VOC), ta.reshape(-1))
-            opt.zero_grad()                                    # weight replay+anchor higher for big models
-            (lf + (2.5 if big else 1.5) * lr_ + (1.5 if big else 1.0) * la).backward()
-            torch.nn.utils.clip_grad_norm_(self.lm.parameters(), 1.0); opt.step()
-            used = step
-            if step % 2 == 0:                                        # check often -> less overshoot
-                self.lm.eval()
-                if self._nll(fact) < target: self.lm.train(); break
-                self.lm.train()
+        try:
+            for step in range(1, max_steps + 1):
+                lf = F.cross_entropy(self.lm(fact_ids[:, :-1]).reshape(-1, H.VOC), fact_ids[:, 1:].reshape(-1))
+                xr, yr = H.batch(self._replay, rb)                 # true-corpus replay
+                lr_ = F.cross_entropy(self.lm(xr).reshape(-1, H.VOC), yr.reshape(-1))
+                xa, ta = anchors[step % len(anchors)]              # self-consolidation anchor
+                la = F.cross_entropy(self.lm(xa).reshape(-1, H.VOC), ta.reshape(-1))
+                opt.zero_grad()                                    # weight replay+anchor higher for big models
+                (lf + (2.5 if big else 1.5) * lr_ + (1.5 if big else 1.0) * la).backward()
+                torch.nn.utils.clip_grad_norm_(self.lm.parameters(), 1.0); opt.step()
+                used = step
+                if step % 2 == 0:                                        # check often -> less overshoot
+                    self.lm.eval()
+                    if self._nll(fact) < target: self.lm.train(); break
+                    self.lm.train()
+        except torch.cuda.OutOfMemoryError:                    # backprop doesn't fit -> episodic-only from now on
+            for pa in self.lm.parameters(): pa.grad = None
+            del opt; torch.cuda.empty_cache()
+            self._weight_teach_ok = False                      # the fact is already in episodic memory + store
+            print(f"[teach] backprop through {self.n_params()/1e6:.0f}M doesn't fit this GPU -- keeping facts "
+                  f"in episodic memory + retrieval only (no weight updates). Use a smaller model, or the H100, "
+                  f"to bake facts into the weights. Chat + memory + goals still work.", flush=True)
         self.lm.eval()
         if big: self.lm.grad_checkpoint = prev_ckpt           # restore inference-mode (no checkpointing)
         # SATURATION signal: if it ran the full budget and STILL can't drive the fact
