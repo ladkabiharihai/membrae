@@ -68,6 +68,18 @@ class Brain(nn.Module):
         self.store = []            # retrieval memory (real seek faculty), (text, key_emb)
         self._replay = None
         self._last_topic = None    # the topic its curiosity is currently chasing
+        # --- SELF-MODEL (self-awareness): a structured, HONEST self-description the controller answers
+        # self-questions FROM -- reliably, instead of letting the raw LM confabulate about itself. This is
+        # the "self" the LM has none of by construction; it lives in the controller and is reportable.
+        self.self_model = {
+            "name": "Pragnosia",
+            "kind": "a small recurrent language model",
+            "core": "a diagonal-complex spin carrier is my core token-mixer  I carry state in the phase of a rotating recurrence, run as a parallel scan; attention is only a periodic helper",
+            "abilities": "I recall facts taught to me, reason step by step by deliberating, hold a short train of thought, seek things up, and grow myself when I saturate",
+            "limits": "I am small and undertrained  I often get multi-step reasoning wrong, I cannot yet reliably tell what I truly know from a confident guess, and I lack long-range verbatim memory",
+            "values": "honesty about what I don't know, curiosity, and clarity",
+        }
+        self.goals = []            # GOALS: each {text, kind, progress, done, notes}; pursued when idle
         self.mem = H.FastWeightMemory(self.lm.d).to(DEVICE)   # IN-WEIGHTS subconscious: surprise-write,
                                                               # additive recall, decay (forget), sleep-consolidate
         # Everything below is DERIVED from the data/model, never hand-set, and is
@@ -500,6 +512,70 @@ class Brain(nn.Module):
         answering, instead of a single-shot guess; the reasoning can draw on the subconscious."""
         return self.generate_text(f"<user> {question} Let's think step by step. <assistant>", n=80, recall=True)
 
+    # ================= SELF-AWARENESS (a reportable self-model) =================
+    _SELF_Q = ("who are you", "what are you", "your name", "what can you do", "what are you able",
+               "can't you do", "cannot you do", "your limitation", "how do you work", "how do you think",
+               "what do you value", "your value", "your goal", "tell me about yourself", "describe yourself",
+               "are you conscious", "are you alive", "are you sentient", "do you know yourself", "about you")
+
+    def is_self_question(self, text):
+        t = (text or "").lower()
+        return any(k in t for k in self._SELF_Q)
+
+    def self_description(self, brief=False):
+        sm = self.self_model
+        if brief: return f"I am {sm['name']}, {sm['kind']}."
+        return (f"I am {sm['name']}, {sm['kind']}. {sm['core'][0].upper()+sm['core'][1:]}. "
+                f"{sm['abilities'][0].upper()+sm['abilities'][1:]}. Honestly: {sm['limits']}. "
+                f"I value {sm['values']}.")
+
+    def self_report(self, text):
+        """Answer a self-referential question FROM the self-model (reliable), not the raw LM."""
+        t = (text or "").lower(); sm = self.self_model
+        if any(k in t for k in ("goal", "want", "trying to", "working on")):
+            live = [g for g in self.goals if not g["done"]]
+            if not live: return "I have no active goal right now  ask me to pursue one, and I will."
+            return "My current goals: " + "; ".join(f"{g['text']} ({int(g['progress']*100)}% there)" for g in live) + "."
+        if any(k in t for k in ("conscious", "alive", "sentient", "feel", "do you know yourself")):
+            return ("No  I'm a language model, not a conscious being. I do keep a stable self-model and I "
+                    "track what I know, but that is mechanism, not experience.")
+        if any(k in t for k in ("can't", "cannot", "limitation", "weak", "bad at")):
+            return "Honestly: " + sm["limits"] + "."
+        if any(k in t for k in ("can you do", "able to", "abilities", "what can you", "good at")):
+            return sm["abilities"][0].upper() + sm["abilities"][1:] + "."
+        if any(k in t for k in ("how do you work", "how do you think", "how you work")):
+            return sm["core"][0].upper() + sm["core"][1:] + "."
+        if any(k in t for k in ("value", "believe in", "care about")):
+            return "I value " + sm["values"] + "."
+        return self.self_description()
+
+    # ================= GOALS (a goal-directed drive) =================
+    def set_goal(self, text, kind="learn"):
+        """Give the brain a goal it will pursue on its own (when idle) -- learn about X, or a generic aim."""
+        g = {"text": text.strip().rstrip(".?"), "kind": kind, "progress": 0.0, "done": False, "notes": []}
+        self.goals.append(g); return g
+
+    def pursue_goals(self, max_goals=2):
+        """Take ONE step toward each active goal, updating progress. A 'learn' goal wonders a sub-question,
+        seeks it, and consolidates it; a generic goal deliberates toward it. This makes idle time GOAL-
+        DIRECTED (pursue what it wants) rather than only free-associative (think_aloud)."""
+        acted = []
+        for g in [g for g in self.goals if not g["done"]][:max_goals]:
+            if g["kind"] == "learn":
+                sub = self.wonder(g["text"]) or g["text"]
+                info = self.search(sub) if self.learn else None
+                if info:
+                    self.teach(f"{sub}: {info}"); g["notes"].append(sub); g["progress"] = min(1.0, g["progress"] + 0.25)
+                else:
+                    th = self._deliberate(f"What do I already know about {g['text']}?")
+                    g["notes"].append(th[:70]); g["progress"] = min(1.0, g["progress"] + 0.1)
+            else:
+                th = self._deliberate(f"What is one concrete step toward: {g['text']}?")
+                g["notes"].append(th[:70]); g["progress"] = min(1.0, g["progress"] + 0.2)
+            if g["progress"] >= 1.0: g["done"] = True
+            acted.append({"goal": g["text"], "progress": round(g["progress"], 2), "done": g["done"]})
+        return acted
+
     def think_aloud(self, seed=None, steps=4):
         """AUTONOMOUS INTERNAL MONOLOGUE -- a self-driven train of thought. It takes a topic (its
         own curiosity), REFLECTS on it (deliberates), notices if it's LOOPING (metacognition),
@@ -538,8 +614,12 @@ class Brain(nn.Module):
         Growth fires by itself when it keeps failing to learn. There is no 'teach mode'
         or 'child mode' -- this is just how it lives."""
         text = (text or "").strip()
-        if not text:                                    # nothing said -> think on its own (autonomous monologue)
+        if not text:                                    # nothing said -> pursue its GOALS if it has any, else wander
+            if self.learn and any(not g["done"] for g in self.goals):
+                return {"pursued_goals": self.pursue_goals()}
             return {"monologue": self.think_aloud(steps=4)} if self.learn else {"answer": "(I'm listening.)"}
+        if self.is_self_question(text):                 # SELF-AWARENESS: answer about ITSELF from the self-model
+            return {"answer": self.self_report(text), "self": True}   #   (reliable -- not raw-LM confabulation)
         if text.endswith("?"):
             chat = f"<user> {text} <assistant>"             # ask in the format the model was TRAINED on --
             # computational / multi-step questions: direct greedy fails them (0/5) but DELIBERATION (CoT)

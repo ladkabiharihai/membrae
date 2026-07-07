@@ -200,6 +200,9 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     # identity injection (optional, env-gated)
     id_path = os.environ.get("PRAGNOSIA_IDENTITY")
     id_seqs = _load_identity(id_path) if id_path and os.path.exists(id_path) else None
+    self_path = os.environ.get("PRAGNOSIA_SELF")   # richer chat-format persona/self corpus (bakes a stable,
+    if self_path and os.path.exists(self_path):    # honest voice + self-knowledge into the weights)
+        id_seqs = (id_seqs or []) + _load_identity(self_path)
     id_every = int(os.environ.get("IDENTITY_EVERY", "50"))
     id_lr = float(os.environ.get("IDENTITY_LR", "1e-4"))                      # brain.py's proven gentle teach lr
     id_opt = torch.optim.AdamW(m.parameters(), lr=id_lr, betas=(0.9, 0.95)) if (id_seqs and not lowmem) else None
