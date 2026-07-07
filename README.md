@@ -5,9 +5,10 @@
 Pragnosia is a transformer/SSM hybrid in which a rotational **spin carrier** — a diagonal-complex
 linear-recurrent unit run as a parallel associative scan — is the *core token-mixer*, with attention only a
 periodic helper (every 4th layer). On top of the model runs a self-calibrating controller (`brain.py`) with
-continual learning, an in-weights episodic memory, introspection, self-directed goals, and function-preserving
-self-growth. Nothing internal is hand-set: every threshold is derived from the model's own data and re-derived
-as it grows.
+continual learning, an in-weights episodic memory, an autobiographical timeline, working memory, tool-use
+agency (act→observe→learn), a theory-of-mind user model, reflection, introspection, self-directed goals, and
+function-preserving self-growth. Nothing internal is hand-set: every threshold is derived from the model's own
+data and re-derived as it grows.
 
 📄 Paper: `paper/paper.html` (→ `Pragnosia_paper.pdf`)  ·  🌐 Site: `site/index.html`  ·  🛠 Train: `RUNBOOK.md`
 
@@ -73,7 +74,7 @@ learning on a small GPU use a smaller model (the 1B's backward needs more VRAM; 
 | File | What |
 |---|---|
 | `s6_hybrid.py` | the LM: `SpinAttentionLM`, the spin carrier + parallel scan, `FastWeightMemory` |
-| `brain.py` | the controller: honesty, continual learning, episodic memory, introspection, self-model, goals, growth |
+| `brain.py` | the controller: honesty, continual learning, episodic + autobiographical + working memory, tool-use agency, theory-of-mind, reflection, introspection, self-model, goals, growth |
 | `train_pragnosia.py` | GPU-adaptive trainer (self-governing growth, long-context modes, identity/persona injection) |
 | `grow.py` | function-preserving growth (depth/width) |
 | `eval_compare.py` / `eval_external.py` | zero-shot benchmark harnesses |
