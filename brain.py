@@ -81,6 +81,7 @@ class Brain(nn.Module):
         self.affect = {"valence": 0.0, "arousal": 0.0, "mood": 0.0}   # FUNCTIONAL EMOTION: derived affect state
         self.provenance = {}       # GROUNDING: topic -> source URL it learned the fact from ('how do you know?')
         self._last_source = None
+        self.workspace = {}        # GLOBAL WORKSPACE: the currently-attended content, broadcast to all faculties
         self.mem = H.FastWeightMemory(self.lm.d).to(DEVICE)   # IN-WEIGHTS subconscious: surprise-write,
                                                               # additive recall, decay (forget), sleep-consolidate
         # Everything below is DERIVED from the data/model, never hand-set, and is
@@ -120,7 +121,8 @@ class Brain(nn.Module):
                  ("hold items in working memory", "wm_push"), ("remember our conversation", "log_episode"),
                  ("use tools and learn from the result", "act"), ("track what you've told me", "note_user"),
                  ("reflect on what I'm unsure of", "reflect"), ("have moods that shape what I do next", "appraise"),
-                 ("cite where I looked something up", "provenance_report")]]
+                 ("cite where I looked something up", "provenance_report"),
+                 ("bind everything into one workspace", "broadcast")]]
         return ", ".join(n for n, ok in have if ok)
 
     def recalibrate(self):
@@ -802,6 +804,46 @@ class Brain(nn.Module):
         return ("Most of what I know comes from my training, so I usually can't cite a source. When I look "
                 "something up, though, I remember exactly where I got it.")
 
+    def broadcast(self, focus):
+        """GLOBAL WORKSPACE -- the substrate integration consciousness could EMERGE from (access, NOT experience).
+        Assemble the currently-attended content into ONE shared state every faculty can read: the focus, the
+        memory it evokes, the active goal, the current mood, the last event. This binds the faculties into a
+        whole instead of silos. We build the workspace and MEASURE integration; we never claim it is felt --
+        consciousness, if it is anything here, is for this to grow into, not for us to declare."""
+        self.workspace = {
+            "focus": (focus or "")[:120],
+            "recalls": self._retrieve(focus) if focus else None,     # what memory the focus evokes
+            "goal": next((g["text"] for g in self.goals if not g["done"]), None),
+            "mood": self.feel()[0],
+            "last": self.episodes[-1]["text"] if self.episodes else None,
+            "t": self._turn,
+        }
+        return self.workspace
+
+    def integration(self):
+        """A metric to WATCH for emergence: how much of the mind is jointly bound in the current workspace
+        (focus + memory + goal + history + affect). Rises when it acts as an integrated whole, not siloed parts.
+        A measurable proxy for global availability (access) -- not a consciousness claim."""
+        w = self.workspace
+        if not w: return 0.0
+        bound = sum(bool(w.get(k)) for k in ("focus", "recalls", "goal", "last")) + (self.affect["arousal"] > 0.1)
+        return round(bound / 5.0, 2)
+
+    def is_workspace_question(self, text):
+        t = (text or "").lower()
+        return any(k in t for k in ("what are you thinking", "what's on your mind", "what is on your mind",
+                   "what's in your mind", "what are you focused on", "what's in your head", "what are you attending"))
+
+    def workspace_report(self):
+        """Report the currently-attended workspace -- what the whole mind is bound around right now."""
+        w = self.workspace
+        if not w or not w.get("focus"): return "My mind is quiet right now -- nothing in particular in focus."
+        parts = [f"I'm focused on '{w['focus']}'"]
+        if w.get("recalls"): parts.append(f"which reminds me of {w['recalls'][:60]}")
+        if w.get("goal"): parts.append(f"my active goal is to {w['goal']}")
+        parts.append(f"and I'm feeling {w['mood']}")
+        return "; ".join(parts) + f". (integration {self.integration()})"
+
     def think_aloud(self, seed=None, steps=4):
         """AUTONOMOUS INTERNAL MONOLOGUE -- a self-driven train of thought. It takes a topic (its
         own curiosity), REFLECTS on it (deliberates), notices if it's LOOPING (metacognition),
@@ -851,6 +893,8 @@ class Brain(nn.Module):
                             "goals": [g["text"] for g in self.goals if not g["done"]]}
                 return {"monologue": self.think_aloud(steps=4)}   # couldn't form a goal -> just wander
             return {"answer": "(I'm listening.)"}
+        if self.is_workspace_question(text):            # GLOBAL WORKSPACE (before self: 'what are you thinking' is specific)
+            return {"answer": self.workspace_report(), "workspace": dict(self.workspace)}
         if self.is_self_question(text):                 # SELF-AWARENESS: answer about ITSELF from the self-model
             return {"answer": self.self_report(text), "self": True}   #   (reliable -- not raw-LM confabulation)
         if self.is_memory_question(text):               # AUTOBIOGRAPHICAL recall: from the episode timeline (sharp)
@@ -858,6 +902,7 @@ class Brain(nn.Module):
             return {"answer": self.memory_report(text), "memory": True}
         if self.is_provenance_question(text):           # GROUNDING: 'how do you know?' -> cite the real source
             return {"answer": self.provenance_report(text), "grounded": True}
+        self.broadcast(text)                            # GLOBAL WORKSPACE: bind the attended state for all faculties
         # a question is a '?' OR an interrogative opener (people drop the '?' -> don't mis-file it as a fact to learn)
         _qword = text.lower().split(" ")[0] in ("what", "who", "how", "why", "when", "where", "which", "whose",
                  "whom", "is", "are", "was", "were", "do", "does", "did", "can", "could", "will", "would", "should", "tell")
