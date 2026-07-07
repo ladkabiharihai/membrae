@@ -25,7 +25,7 @@ commands. So there are only two ways to run it:
   python3 brain.py test     -> verify it: full self-test (every faculty + language).
 ================================================================================
 """
-import json, math, os, sys, time
+import json, math, os, re, sys, time
 import numpy as np, torch, torch.nn as nn, torch.nn.functional as F
 import s6_hybrid as H
 from tokenizers import Tokenizer
@@ -72,6 +72,12 @@ class Brain(nn.Module):
         self.goals = []            #   _derive_self after the LM loads; re-derived on grow). Not hand-set.
         self._gaps = []            # things it honestly couldn't answer -> seeds for self-defined goals
         self._weight_teach_ok = True   # cleared if backprop OOMs -> fall back to episodic-only learning
+        # --- faculties that make it more than a predictor (the buildable pieces of a mind) ---
+        self.wm = []               # WORKING MEMORY: a small bounded scratchpad it reasons OVER (holds ~7 items)
+        self.episodes = []         # AUTOBIOGRAPHICAL timeline: ordered events, survives sessions (queryable)
+        self.user_model = {"told": [], "asked": []}   # THEORY OF MIND: the USER's mind, kept apart from world-fact
+        self._recent_lowconf = []  # questions it was unsure on -> reflected into gaps/goals at idle
+        self._turn = 0             # monotonic step counter -> orders episodes (no wall-clock needed)
         self.mem = H.FastWeightMemory(self.lm.d).to(DEVICE)   # IN-WEIGHTS subconscious: surprise-write,
                                                               # additive recall, decay (forget), sleep-consolidate
         # Everything below is DERIVED from the data/model, never hand-set, and is
@@ -107,7 +113,10 @@ class Brain(nn.Module):
         have = [(n, hasattr(self, m)) for n, m in
                 [("recall taught facts", "teach"), ("deliberate step by step", "_deliberate"),
                  ("hold a train of thought", "think_aloud"), ("seek things up", "search"),
-                 ("grow when I saturate", "_maybe_grow"), ("keep a subconscious memory", "mem")]]
+                 ("grow when I saturate", "_maybe_grow"), ("keep a subconscious memory", "mem"),
+                 ("hold items in working memory", "wm_push"), ("remember our conversation", "log_episode"),
+                 ("use tools and learn from the result", "act"), ("track what you've told me", "note_user"),
+                 ("reflect on what I'm unsure of", "reflect")]]
         return ", ".join(n for n, ok in have if ok)
 
     def recalibrate(self):
@@ -616,6 +625,98 @@ class Brain(nn.Module):
         if not topic or not topic.strip(): return None
         return self.set_goal(f"learn about {topic.strip()}", kind="learn")
 
+    # ============ MIND FACULTIES: working memory · autobiography · agency · other-minds · reflection ============
+    def wm_push(self, item):
+        """WORKING MEMORY: hold an item in a small bounded scratchpad it reasons over. Oldest drops past ~7
+        slots (Miller's number -- a cognitive bound, not a tuned threshold)."""
+        item = (item or "").strip()
+        if item and (not self.wm or self.wm[-1] != item):
+            self.wm.append(item)
+            if len(self.wm) > 7: self.wm.pop(0)
+
+    def wm_clear(self): self.wm = []
+
+    def reason(self, question, steps=3):
+        """WORKING-MEMORY-AUGMENTED reasoning: deliberate across steps, carrying each intermediate result in
+        working memory and feeding it back -- so step N builds on step N-1 (multi-step composition), not one
+        greedy shot. Falls back to a single deliberation if the scratchpad stays empty."""
+        self.wm_clear(); self.wm_push(f"Q: {question}"); last = ""
+        for _ in range(steps):
+            scratch = " | ".join(self.wm[1:]) or "(none yet)"
+            step = self.generate_text(f"<user> {question}\nso far: {scratch}\nnext step: <assistant>",
+                                      n=48, recall=True).strip()
+            if not step or step == last: break
+            self.wm_push(step[:80]); last = step
+        return (" ".join(self.wm[1:])[:240]) or self._deliberate(question)
+
+    EPISODE_FILE = "episodes.json"
+    def log_episode(self, kind, text):
+        """AUTOBIOGRAPHICAL MEMORY: record an ordered event (said/asked/learned/answered/acted). Bounded; persisted."""
+        self._turn += 1
+        self.episodes.append({"t": self._turn, "kind": kind, "text": (text or "")[:200]})
+        if len(self.episodes) > 1000: self.episodes = self.episodes[-1000:]
+
+    def is_memory_question(self, text):
+        t = (text or "").lower()
+        return any(k in t for k in ("what did we talk", "what did i tell", "what did i teach", "what did i ask",
+                   "what have we", "do you remember", "what did i say", "our conversation", "talked about"))
+
+    def memory_report(self, text):
+        """Answer an autobiographical question FROM the episode timeline (sharp recall, not confabulation)."""
+        t = (text or "").lower()
+        if any(k in t for k in ("teach", "tell", "told", "say", "said")):
+            said = [e["text"] for e in self.episodes if e["kind"] in ("said", "learned")]
+            return "You've told me: " + "; ".join(said[-6:]) + "." if said else "You haven't told me anything yet this session."
+        if "ask" in t:
+            asked = [e["text"] for e in self.episodes if e["kind"] == "asked"]
+            return "You've asked me: " + "; ".join(asked[-6:]) + "." if asked else "You haven't asked me anything yet."
+        topics = [e["text"] for e in self.episodes if e["kind"] in ("said", "asked", "learned")]
+        return "We've talked about: " + "; ".join(topics[-6:]) + "." if topics else "We haven't talked about anything yet."
+
+    def _tool_calc(self, text):
+        """arithmetic tool -- safely evaluate the numeric expression in the text (no builtins; operator required)."""
+        cands = [c.strip() for c in re.findall(r"[-+*/().\d\s]+", text)
+                 if any(d.isdigit() for d in c) and any(o in c for o in "+-*/")]
+        if not cands: return None
+        try:
+            v = eval(max(cands, key=len), {"__builtins__": {}}, {})
+            return str(int(v) if isinstance(v, float) and v.is_integer() else round(v, 4))
+        except Exception:
+            return None
+
+    def act(self, goal):
+        """AGENCY (perceive->act->observe->learn): pick the tool the goal needs -- arithmetic->calc,
+        already-known->recall, else->web search -- run it, OBSERVE the result, and LEARN the outcome so
+        next time it is known. Returns the observation."""
+        result, tool = None, None
+        calc = self._tool_calc(goal)
+        if calc is not None: result, tool = calc, "calc"
+        else:
+            mem = self._retrieve(goal)
+            if mem: result, tool = mem, "recall"
+            elif self.learn:
+                web = self.search(goal)
+                if web: result, tool = web, "search"
+        if result and tool == "search": self.teach(f"{goal}: {result}")          # LEARN from the world
+        elif result and tool == "calc" and self.learn: self.teach(f"{goal} = {result}")
+        self.log_episode("acted", f"{goal} -[{tool or 'none'}]-> {result}")
+        return {"goal": goal, "tool": tool, "result": result, "learned": bool(result and tool != "recall")}
+
+    def note_user(self, kind, text):
+        """THEORY OF MIND: track what the USER told/asked (their mind), kept distinct from world-knowledge."""
+        self.user_model.setdefault(kind, []).append((text or "")[:160])
+        self.user_model[kind] = self.user_model[kind][-50:]
+
+    def reflect(self):
+        """REFLECTION (metacognition->learning): review questions it was unsure on and turn each into a gap to
+        learn later (a self-goal). Called at idle/sleep -- so being unsure now drives learning next."""
+        made = []
+        for q in self._recent_lowconf:
+            topic = self.wonder(q) or q
+            if topic and topic not in self._gaps: self._gaps.append(topic); made.append(topic)
+        self._recent_lowconf = []
+        return made
+
     def think_aloud(self, seed=None, steps=4):
         """AUTONOMOUS INTERNAL MONOLOGUE -- a self-driven train of thought. It takes a topic (its
         own curiosity), REFLECTS on it (deliberates), notices if it's LOOPING (metacognition),
@@ -656,6 +757,7 @@ class Brain(nn.Module):
         text = (text or "").strip()
         if not text:                                    # nothing said -> be self-directed
             if self.learn:
+                self.reflect()                          # REFLECTION: what it was unsure on -> new gaps to learn
                 if not any(not g["done"] for g in self.goals):
                     self.propose_goal()                 # no goal -> DEFINE ITS OWN (from a gap or its curiosity)
                 if any(not g["done"] for g in self.goals):
@@ -665,23 +767,32 @@ class Brain(nn.Module):
             return {"answer": "(I'm listening.)"}
         if self.is_self_question(text):                 # SELF-AWARENESS: answer about ITSELF from the self-model
             return {"answer": self.self_report(text), "self": True}   #   (reliable -- not raw-LM confabulation)
+        if self.is_memory_question(text):               # AUTOBIOGRAPHICAL recall: from the episode timeline (sharp)
+            self.log_episode("asked", text)
+            return {"answer": self.memory_report(text), "memory": True}
         # a question is a '?' OR an interrogative opener (people drop the '?' -> don't mis-file it as a fact to learn)
         _qword = text.lower().split(" ")[0] in ("what", "who", "how", "why", "when", "where", "which", "whose",
                  "whom", "is", "are", "was", "were", "do", "does", "did", "can", "could", "will", "would", "should", "tell")
         if text.endswith("?") or _qword:
+            self.log_episode("asked", text); self.note_user("asked", text)   # THEORY OF MIND + autobiography
             chat = f"<user> {text.rstrip('?')+'?'} <assistant>"   # ask in the format the model was TRAINED on --
-            # computational / multi-step questions: direct greedy fails them (0/5) but DELIBERATION (CoT)
-            # works (~4/5) -- so route them through step-by-step reasoning first.
+            # computational / multi-step: an exact arithmetic TOOL (agency) beats a guess; else CoT reasoning.
             hard = any(c.isdigit() for c in text) or any(w in text.lower()
                        for w in ("how many", "how much", "calculate", " total", " each", "step by step"))
             if hard:
-                reasoned = self._deliberate(text)
+                calc = self._tool_calc(text)            # AGENCY: exact arithmetic tool -- right, not a guess
+                if calc is not None:
+                    self.log_episode("answered", f"{text} = {calc}")
+                    return {"answer": calc, "tool": "calc"}
+                reasoned = self.reason(text)            # else WORKING-MEMORY-augmented multi-step reasoning
                 if reasoned.strip():
                     return {"answer": reasoned[:240], "deliberated": True}
             cons, ans = self._self_consistency(chat)        # a bare question is out-of-distribution and the
             if cons >= self.consistency_min:                # honesty gate then over-abstains on what it knows
-                return {"answer": ans[:200]}                # (consistency is the best signal we have at 284M --
-                #   no signal cleanly separates knowledge from confident confabulation at this scale; scale-limited)
+                self.log_episode("answered", ans[:80])      # (consistency is the best signal we have at 284M --
+                return {"answer": ans[:200]}                #  nothing cleanly separates knowledge from confident
+                #   confabulation at this scale; scale-limited)
+            self._recent_lowconf.append(text)               # unsure -> REFLECT on it at idle (metacognition->learning)
             if not self.learn:                              # inference-only: just be honest
                 return {"answer": "I don't know."}
             reasoned = self._deliberate(text)               # not directly sure -> DELIBERATE before giving up
@@ -695,17 +806,17 @@ class Brain(nn.Module):
                 if topic.endswith(suf): topic = topic[:-len(suf)].strip()
             topic = topic or text.rstrip("? ").split(" ")[-1]
             if topic and topic not in self._gaps: self._gaps.append(topic)   # remember the gap -> a future self-goal
+            obs = self.act(topic)                           # AGENCY: pick a tool, run it, OBSERVE, LEARN the outcome
             tr = {"answer": "I don't know -- let me find out.", "didnt_know": topic}
-            info = self.search(topic)                       # curious -> look it up and learn
-            if info:
-                self.teach(f"{topic}: {info}")
-                tr["looked_up"] = (info[:140] + "...") if len(info) > 140 else info
+            if obs["result"]:
+                r = obs["result"]; tr["looked_up"] = (r[:140] + "...") if len(r) > 140 else r; tr["via"] = obs["tool"]
                 grew = self._maybe_grow()
                 if grew: tr["grew"] = f"{grew[0]:,} -> {grew[1]:,} params"
             else:
                 tr["couldnt_find"] = topic
             return tr
-        return self.think(text)                             # a statement -> learn + wonder + look up
+        self.log_episode("said", text); self.note_user("told", text)   # a statement -> autobiography + theory of mind
+        return self.think(text)                             # -> learn + wonder + look up
 
     # ================= WIRED: seek (retrieve from memory) =================
     # No stopword/pronoun lists. Similarity uses self-information-weighted
@@ -858,11 +969,19 @@ class Brain(nn.Module):
         learned = [t for t, _ in self.store
                    if self.NAME not in t and not t.startswith(("My name", "I "))]
         self._atomic_save(learned, self.MEM_FILE, _torch_save=False)
+        # AUTOBIOGRAPHICAL timeline + THEORY-OF-MIND user model survive the session too
+        self._atomic_save({"episodes": self.episodes[-500:], "user": self.user_model},
+                          self.EPISODE_FILE, _torch_save=False)
 
     def _load_memory(self):
         if os.path.exists(self.MEM_FILE):
             for t in json.load(open(self.MEM_FILE)):
                 self.store.append((t, self._embed(t)))
+        if os.path.exists(self.EPISODE_FILE):               # restore the life-story + what the user told me
+            d = json.load(open(self.EPISODE_FILE))
+            self.episodes = d.get("episodes", [])
+            self.user_model = d.get("user", self.user_model)
+            self._turn = self.episodes[-1]["t"] if self.episodes else 0
 
     # ================= AUTONOMOUS CONTROLLER (no hardcoded routing) =================
     # Every decision flows from the brain's OWN signals: its learned uncertainty
