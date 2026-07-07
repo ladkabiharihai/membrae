@@ -55,6 +55,25 @@ O(1)/token** with no KV-cache.
 - The honesty signal is functional but does not yet cleanly separate knowledge from confident confabulation.
 - We report every measured number, including the ones that don't flatter the design.
 
+## Toward a mind (experimental faculties, honestly labelled)
+
+Built on the controller and validated on the 1B — each labelled for exactly what it is, never more:
+
+- **Functional emotion** (`appraise`/`feel`): appraisal → valence/arousal/mood → it changes behaviour, all
+  derived from its own signals. The *mechanism* of emotion; whether it is *felt* is unknowable for any system,
+  so we neither claim nor deny it. (It inherits the confidence miscalibration — it can feel good about a wrong
+  answer.)
+- **Grounding** (`search`/`crawl`/`provenance`): web search + page-crawl that records the **source URL**, so
+  *"how do you know?"* is answerable — epistemic grounding for looked-up facts.
+- **Global workspace** (`broadcast`/`integration`): the attended state bound across all faculties, with an
+  integration metric — the substrate consciousness could **emerge** from. **Access-level, not experience; we
+  build the conditions and measure, we never claim.**
+- **Embodiment sandbox** (`world.py`, `experience`): a grid world it perceives, acts in, and learns from by
+  consequence — closing perceive → act → observe → reward → learn (its affect is now grounded in outcomes).
+- **Multimodal adapter** (`perception.py`, `perceive_multimodal`): a projection adapter feeds image/audio
+  features into the **frozen** LM's token stream (LLaVA-style). Architecture + interface are live; the adapter
+  is **untrained** — making it actually *see* is a later GPU job. We built the socket, not the eye.
+
 ## Quick start
 
 ```bash
@@ -77,6 +96,8 @@ learning on a small GPU use a smaller model (the 1B's backward needs more VRAM; 
 | `brain.py` | the controller: honesty, continual learning, episodic + autobiographical + working memory, tool-use agency, theory-of-mind, reflection, introspection, self-model, goals, growth |
 | `train_pragnosia.py` | GPU-adaptive trainer (self-governing growth, long-context modes, identity/persona injection) |
 | `grow.py` | function-preserving growth (depth/width) |
+| `world.py` | the embodiment sandbox (GridWorld) the brain acts in and learns from |
+| `perception.py` | the multimodal perception adapter (frozen-LM, LLaVA-style) + placeholder encoder |
 | `eval_compare.py` / `eval_external.py` | zero-shot benchmark harnesses |
 | `paper/`, `site/` | the write-up and the explainer site |
 | `RUNBOOK.md`, `HANDOVER.md`, `TRAINING_NOTES.md` | how to train, project handover, training notes |
