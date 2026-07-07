@@ -47,5 +47,12 @@
     "arc_easy": 0.372,
     "arc_challenge": 0.243,
     "piqa": 0.633
+  },
+  "cerebras/Cerebras-GPT-1.3B (1316M)": {
+    "lambada": 0.47,
+    "hellaswag": 0.359,
+    "arc_easy": 0.389,
+    "arc_challenge": 0.257,
+    "piqa": 0.671
   }
 }
