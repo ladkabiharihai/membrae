@@ -82,6 +82,7 @@ class Brain(nn.Module):
         self.provenance = {}       # GROUNDING: topic -> source URL it learned the fact from ('how do you know?')
         self._last_source = None
         self.workspace = {}        # GLOBAL WORKSPACE: the currently-attended content, broadcast to all faculties
+        self.perception = None     # MULTIMODAL adapter (built on first perceive; LM stays frozen), trained later
         self.mem = H.FastWeightMemory(self.lm.d).to(DEVICE)   # IN-WEIGHTS subconscious: surprise-write,
                                                               # additive recall, decay (forget), sleep-consolidate
         # Everything below is DERIVED from the data/model, never hand-set, and is
@@ -123,7 +124,8 @@ class Brain(nn.Module):
                  ("reflect on what I'm unsure of", "reflect"), ("have moods that shape what I do next", "appraise"),
                  ("cite where I looked something up", "provenance_report"),
                  ("bind everything into one workspace", "broadcast"),
-                 ("act in a world and learn from what happens", "experience")]]
+                 ("act in a world and learn from what happens", "experience"),
+                 ("take in a picture through a perception adapter (untrained)", "perceive_multimodal")]]
         return ", ".join(n for n, ok in have if ok)
 
     def recalibrate(self):
@@ -876,6 +878,28 @@ class Brain(nn.Module):
         for a in actions:
             if a in pick: return a
         return actions[self._turn % len(actions)]        # last resort: vary (no hand-coded goal-seeking)
+
+    def perceive_multimodal(self, feat, prompt="What do you see?"):
+        """MULTIMODAL on the FROZEN LM: project a perception feature into perception tokens, prepend them to the
+        text embeddings, and run the LM on the combined stream (forward_embeds). Architecture + interface are LIVE
+        now; making it actually SEE needs training the adapter on image-text pairs (a GPU job). The LM is untouched
+        -- we build the socket, not the eye."""
+        import perception as P
+        if self.perception is None or self.perception.proj[0].in_features != len(feat):
+            self.perception = P.PerceptionAdapter(len(feat), self.lm.d).to(DEVICE)
+        dt = self.lm.emb.weight.dtype
+        ptok = self.perception(torch.tensor(feat, device=DEVICE, dtype=torch.float32)[None]).to(dt)  # [1,n,d]
+        ids = self.tok.encode(f"<user> {prompt} <assistant>").ids
+        pos = torch.arange(len(ids), device=DEVICE)
+        temb = self.lm.emb(torch.tensor([ids], device=DEVICE)) + self.lm.pos(pos)[None]
+        h = torch.cat([ptok, temb], dim=1)               # [perception tokens ; text] -> one stream
+        with torch.no_grad():
+            logits = self.lm.forward_embeds(h)           # the FROZEN spin LM runs the combined modality stream
+        return {"perception_tokens": int(ptok.shape[1]), "seq_len": int(h.shape[1]), "logits": tuple(logits.shape),
+                "adapter_trained": False,
+                "note": "architecture + interface are LIVE (feature -> perception tokens -> frozen LM). The adapter "
+                        "is UNTRAINED, so the reading isn't meaningful yet -- training it on image-text pairs is the "
+                        "next GPU step; the spin LM itself stays frozen."}
 
     def think_aloud(self, seed=None, steps=4):
         """AUTONOMOUS INTERNAL MONOLOGUE -- a self-driven train of thought. It takes a topic (its

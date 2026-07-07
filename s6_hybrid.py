@@ -233,6 +233,20 @@ class SpinAttentionLM(nn.Module):
         lg = self.head(self.lnf(h))
         return (lg, states) if return_state else lg
 
+    def forward_embeds(self, h):
+        """MULTIMODAL hook: run the stack on PRECOMPUTED embeddings h [B,T,d] instead of token ids -- e.g.
+        perception tokens (from a modality adapter) prepended to the text embeddings. Frozen-LM path: it lets a
+        perception adapter feed the model without touching the trained token forward. Non-stateful; covers the
+        spin_dominant / single / per_block carriers."""
+        mode = getattr(self, "carrier_mode", "single")
+        for i, b in enumerate(self.blocks):
+            h = b(h)
+            if mode == "per_block":
+                h, _ = self.carriers[i](h, None)
+        if mode == "single":
+            h, _ = self.carrier(h, None)
+        return self.head(self.lnf(h))
+
     @torch.no_grad()
     def generate(self, ids, n_new=64, window=256, overlap=64, temp=0.0, rep=1.3, eos=0):
         """O(T) LONG-context generation. Attention only ever sees `window` tokens (the
