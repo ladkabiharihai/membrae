@@ -665,8 +665,11 @@ class Brain(nn.Module):
             return {"answer": "(I'm listening.)"}
         if self.is_self_question(text):                 # SELF-AWARENESS: answer about ITSELF from the self-model
             return {"answer": self.self_report(text), "self": True}   #   (reliable -- not raw-LM confabulation)
-        if text.endswith("?"):
-            chat = f"<user> {text} <assistant>"             # ask in the format the model was TRAINED on --
+        # a question is a '?' OR an interrogative opener (people drop the '?' -> don't mis-file it as a fact to learn)
+        _qword = text.lower().split(" ")[0] in ("what", "who", "how", "why", "when", "where", "which", "whose",
+                 "whom", "is", "are", "was", "were", "do", "does", "did", "can", "could", "will", "would", "should", "tell")
+        if text.endswith("?") or _qword:
+            chat = f"<user> {text.rstrip('?')+'?'} <assistant>"   # ask in the format the model was TRAINED on --
             # computational / multi-step questions: direct greedy fails them (0/5) but DELIBERATION (CoT)
             # works (~4/5) -- so route them through step-by-step reasoning first.
             hard = any(c.isdigit() for c in text) or any(w in text.lower()
@@ -684,7 +687,13 @@ class Brain(nn.Module):
             reasoned = self._deliberate(text)               # not directly sure -> DELIBERATE before giving up
             if self._self_consistency(f"{chat} {reasoned}")[0] >= self.consistency_min:
                 return {"answer": reasoned[:200], "deliberated": True}
-            topic = self.wonder(text) or text.rstrip("? ").split(" ")[-1]
+            topic = (self.wonder(text) or text).strip("? ").lower()   # clean it into a search query: drop the
+            for op in ("what is", "what are", "who is", "who are", "how does", "how do", "tell me about",  # opener
+                       "what", "who", "how", "why", "when", "where", "which"):
+                if topic.startswith(op + " "): topic = topic[len(op):].strip(); break
+            for suf in (" works", " work", " means", " mean", " is", " are"):                            # trailing verb
+                if topic.endswith(suf): topic = topic[:-len(suf)].strip()
+            topic = topic or text.rstrip("? ").split(" ")[-1]
             if topic and topic not in self._gaps: self._gaps.append(topic)   # remember the gap -> a future self-goal
             tr = {"answer": "I don't know -- let me find out.", "didnt_know": topic}
             info = self.search(topic)                       # curious -> look it up and learn
