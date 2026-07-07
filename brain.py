@@ -249,12 +249,13 @@ class Brain(nn.Module):
             f"What are you called? I am called {n}.", f"And you are? I am {n}.",
             f"Hello, I am {n}.", f"This is {n}.",
         ]
-        if os.path.exists(cache):
-            self.lm.load_state_dict(torch.load(cache, map_location=DEVICE, weights_only=True))
+        if os.path.exists(cache):                # load on CPU then copy into the (GPU) model -> no 2x GPU spike
+            self.lm.load_state_dict(torch.load(cache, map_location="cpu", weights_only=True))
         elif self.learn:                         # only bake identity into weights when learning is on
             for s in facts:
                 self.teach(s, base_lr=1e-4, max_steps=20)     # gentle: nudge, don't memorize-hard
-            self._atomic_save(self.lm.state_dict(), cache)
+            if self._weight_teach_ok:            # only cache if teaching actually ran (else it's just base weights)
+                self._atomic_save(self.lm.state_dict(), cache)
         for s in facts:                          # seek memory either way -> recall works in inference mode
             self.store.append((s, self._embed(s)))
 
