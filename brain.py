@@ -153,6 +153,31 @@ class Brain(nn.Module):
         self._content_min = self._calibrate_content_min()     # what counts as a content word
         self.consistency_min = self._calibrate_consistency()  # answer-stability => it knows (honesty)
         self.novelty_min = self._calibrate_novelty()          # content-surprise => it's NEW (learn)
+        self._q_openers = self._derive_question_words()       # interrogative openers, DERIVED from the corpus
+
+    def _derive_question_words(self, n_sample=3000):
+        """DERIVE the interrogative openers from the corpus instead of hand-listing them: sample sentences and
+        keep the first-words that disproportionately begin QUESTIONS (spans ending in '?') vs statements. The
+        grammatical cue is still form, but the FORM MARKERS now come from the data, like the token weights."""
+        if self._replay is None:
+            try: self._replay = H.load(CFG["train_bin"])
+            except Exception: return {"what", "who", "how", "why", "when", "where", "which", "is", "are", "do"}
+        from collections import Counter
+        q, tot = Counter(), Counter(); seen = 0
+        L = len(self._replay); step = max(64, L // max(1, n_sample))
+        for i in range(0, L - 64, step):
+            txt = self.tok.decode([int(x) for x in self._replay[i:i + 64]])
+            for sent in re.split(r"(?<=[.?!])\s+", txt):
+                s = sent.strip()
+                w = s.split(" ")[0].lower().strip('"\'') if s else ""
+                if not w.isalpha(): continue
+                tot[w] += 1
+                if s.endswith("?"): q[w] += 1
+                seen += 1
+            if seen >= n_sample: break
+        base = sum(q.values()) / max(1, sum(tot.values()))          # corpus baseline P(question)
+        openers = {w for w, c in tot.items() if c >= 3 and q[w] / c >= 1.5 * base}   # enriched for questions
+        return openers or {"what", "who", "how", "why", "when", "where"}   # fallback if corpus too sparse
 
     # ================= NEUROGENESIS: grow capacity on demand =================
     def grow(self, mode="depth", **kw):
@@ -984,11 +1009,10 @@ class Brain(nn.Module):
             return {"answer": self.provenance_report(text), "grounded": True}
         self.broadcast(text)                            # GLOBAL WORKSPACE: bind the attended state for all faculties
         # QUESTION vs STATEMENT is read from grammatical FORM -- a trailing '?' or an interrogative opener --
-        # the same I/O-level cue as hearing rising intonation, NOT a semantic threshold. (Which specific intent
-        # a question is, above, is derived by embedding; this only parses sentence TYPE so a dropped '?' isn't
-        # mis-filed as a fact to learn.)
-        _qword = text.lower().split(" ")[0] in ("what", "who", "how", "why", "when", "where", "which", "whose",
-                 "whom", "is", "are", "was", "were", "do", "does", "did", "can", "could", "will", "would", "should", "tell")
+        # the same I/O cue as hearing rising intonation. The opener set is DERIVED from the corpus (which first-
+        # words actually begin questions), not hand-listed; this only parses sentence TYPE so a dropped '?' isn't
+        # mis-filed as a fact to learn.
+        _qword = text.lower().split(" ")[0] in self._q_openers
         if text.endswith("?") or _qword:
             self.log_episode("asked", text); self.note_user("asked", text)   # THEORY OF MIND + autobiography
             chat = f"<user> {text.rstrip('?')+'?'} <assistant>"   # ask in the format the model was TRAINED on --
