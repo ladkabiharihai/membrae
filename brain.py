@@ -122,7 +122,8 @@ class Brain(nn.Module):
                  ("use tools and learn from the result", "act"), ("track what you've told me", "note_user"),
                  ("reflect on what I'm unsure of", "reflect"), ("have moods that shape what I do next", "appraise"),
                  ("cite where I looked something up", "provenance_report"),
-                 ("bind everything into one workspace", "broadcast")]]
+                 ("bind everything into one workspace", "broadcast"),
+                 ("act in a world and learn from what happens", "experience")]]
         return ", ".join(n for n, ok in have if ok)
 
     def recalibrate(self):
@@ -843,6 +844,38 @@ class Brain(nn.Module):
         if w.get("goal"): parts.append(f"my active goal is to {w['goal']}")
         parts.append(f"and I'm feeling {w['mood']}")
         return "; ".join(parts) + f". (integration {self.integration()})"
+
+    def experience(self, world, steps=20):
+        """EMBODIMENT -- learn by DOING: live in a world, perceive its state, ACT, observe the consequence
+        (reward), feel it (appraise), and learn the moves that worked. Closes perceive->act->observe->reward->
+        learn with real stakes, not just reading -- the seed of grounding action in outcome."""
+        trace, total = [], 0.0
+        world.reset()
+        for _ in range(steps):
+            obs = world.perceive()
+            self.broadcast(obs)                          # attend to the world state (global workspace)
+            action = self._choose_action(obs, world.actions())
+            reward, done = world.step(action)
+            total += reward
+            self.appraise("success" if reward > 0 else "failure", min(1.0, abs(reward) + 0.2))   # FEEL the outcome
+            self.log_episode("acted", f"{obs[:40]} -> {action} (r={reward:+.1f})")
+            if reward > 0 and self.learn:                # LEARN what worked -> remembered for next time
+                self.teach(f"In the grid, when {obs} I should go {action}.")
+            trace.append({"action": action, "reward": round(reward, 2), "pos": tuple(world.pos)})
+            if done: break
+        return {"steps": len(trace), "reached": world.pos == world.goal, "return": round(total, 2), "trace": trace}
+
+    def _choose_action(self, obs, actions):
+        """Choose a move: recall what worked in a similar state (learned by experience), else ask the LM grounded
+        in the perception. Its skill is whatever it has learned by DOING -- not a hand-coded planner."""
+        recalled = self._retrieve(obs)                   # did a past experience teach a move for this state?
+        if recalled:
+            for a in actions:
+                if f"go {a}" in recalled.lower(): return a
+        pick = self.generate_text(f"<user> {obs} Which way should I move: {', '.join(actions)}? <assistant>", n=8).lower()
+        for a in actions:
+            if a in pick: return a
+        return actions[self._turn % len(actions)]        # last resort: vary (no hand-coded goal-seeking)
 
     def think_aloud(self, seed=None, steps=4):
         """AUTONOMOUS INTERNAL MONOLOGUE -- a self-driven train of thought. It takes a topic (its
