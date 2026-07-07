@@ -416,7 +416,8 @@ class Brain(nn.Module):
         it just saw) -- the contiguous run of content words around the peak surprise.
         The topic is chosen by the brain's own uncertainty, not a fixed list. Returns
         the entity string (e.g. 'Tycho Brahe'), or None."""
-        ids = self.tok.encode(text).ids
+        if not text or not str(text).strip(): return None   # nothing to wonder about
+        ids = self.tok.encode(str(text)).ids
         if len(ids) < 3: return None
         logits = self.lm(torch.tensor([ids], device=DEVICE))[0, :-1]
         tgt = torch.tensor(ids[1:], device=DEVICE)
@@ -610,7 +611,7 @@ class Brain(nn.Module):
         """DEFINE ITS OWN goal -- self-directed, derived from its own experience: a gap it recently hit
         (something it honestly couldn't answer) if any, else its curiosity (what its last thought makes it
         wonder). Not given, not hand-set -- it decides what to pursue from its own surprise."""
-        seed = self._gaps.pop() if self._gaps else self._last_topic   # a real gap it noticed > free curiosity
+        seed = self._gaps.pop() if self._gaps else (self._last_topic or "the world")  # fallback if nothing yet
         topic = self.wonder(seed) or seed                             # curiosity turns the seed into a topic
         if not topic or not topic.strip(): return None
         return self.set_goal(f"learn about {topic.strip()}", kind="learn")
