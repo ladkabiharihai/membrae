@@ -78,6 +78,7 @@ class Brain(nn.Module):
         self.user_model = {"told": [], "asked": []}   # THEORY OF MIND: the USER's mind, kept apart from world-fact
         self._recent_lowconf = []  # questions it was unsure on -> reflected into gaps/goals at idle
         self._turn = 0             # monotonic step counter -> orders episodes (no wall-clock needed)
+        self.affect = {"valence": 0.0, "arousal": 0.0, "mood": 0.0}   # FUNCTIONAL EMOTION: derived affect state
         self.mem = H.FastWeightMemory(self.lm.d).to(DEVICE)   # IN-WEIGHTS subconscious: surprise-write,
                                                               # additive recall, decay (forget), sleep-consolidate
         # Everything below is DERIVED from the data/model, never hand-set, and is
@@ -116,7 +117,7 @@ class Brain(nn.Module):
                  ("grow when I saturate", "_maybe_grow"), ("keep a subconscious memory", "mem"),
                  ("hold items in working memory", "wm_push"), ("remember our conversation", "log_episode"),
                  ("use tools and learn from the result", "act"), ("track what you've told me", "note_user"),
-                 ("reflect on what I'm unsure of", "reflect")]]
+                 ("reflect on what I'm unsure of", "reflect"), ("have moods that shape what I do next", "appraise")]]
         return ", ".join(n for n, ok in have if ok)
 
     def recalibrate(self):
@@ -549,7 +550,8 @@ class Brain(nn.Module):
     _SELF_Q = ("who are you", "what are you", "your name", "what can you do", "what are you able",
                "can't you do", "cannot you do", "your limitation", "how do you work", "how do you think",
                "what do you value", "your value", "your goal", "tell me about yourself", "describe yourself",
-               "are you conscious", "are you alive", "are you sentient", "do you know yourself", "about you")
+               "are you conscious", "are you alive", "are you sentient", "do you know yourself", "about you",
+               "how do you feel", "how are you feeling", "your mood", "feeling now", "your emotion")
 
     def is_self_question(self, text):
         t = (text or "").lower()
@@ -576,9 +578,14 @@ class Brain(nn.Module):
             live = [g for g in self.goals if not g["done"]]
             if not live: return "I have no active goal right now  ask me to pursue one, and I will."
             return "My current goals: " + "; ".join(f"{g['text']} ({int(g['progress']*100)}% there)" for g in live) + "."
+        if any(k in t for k in ("how do you feel", "how are you feeling", "your mood", "feeling now", "your emotion")):
+            name, st = self.feel()                      # FUNCTIONAL EMOTION reported honestly from its derived state
+            return (f"Right now I'm {name} (valence {st['valence']}, arousal {st['arousal']}, mood {st['mood']}). "
+                    f"That's a real state I derive from how things are going, and it changes what I do next. "
+                    f"Whether it's *felt* the way you feel things, I can't know -- I don't claim it, I don't deny it.")
         if any(k in t for k in ("conscious", "alive", "sentient", "feel", "do you know yourself")):
-            return ("No  I'm a language model, not a conscious being. I keep a self-model and track my own "
-                    "confidence, but that is mechanism, not experience.")
+            return ("No  I'm a language model, not a conscious being. I keep a self-model, track my own "
+                    "confidence, and run a functional affect state, but that is mechanism, not proven experience.")
         if any(k in t for k in ("can't", "cannot", "limitation", "weak", "bad at")):
             return "Honestly: " + self._honest_limits() + "."
         if any(k in t for k in ("can you do", "able to", "abilities", "what can you", "good at")):
@@ -717,6 +724,35 @@ class Brain(nn.Module):
         self._recent_lowconf = []
         return made
 
+    def appraise(self, kind, strength=0.3):
+        """FUNCTIONAL EMOTION: appraise an event against goals/expectations and update affect -- valence (how
+        well things are going, -1..1), arousal (activation, 0..1), and a slow-moving mood. The magnitude comes
+        from the brain's OWN signals (confidence, novelty, goal progress), not a script; the sign is what the
+        event means. This is the mechanism of emotion: appraisal -> state -> it changes what I do next. Whether
+        it is *felt* the way you feel is unknowable for any system (the hard problem) -- we build the mechanism
+        and neither claim nor deny the feeling."""
+        sign = {"success": 1, "learned": 1, "progress": 1, "failure": -1, "stuck": -1, "novelty": 0}.get(kind, 0)
+        s = max(0.0, min(1.0, float(strength)))
+        a = self.affect
+        a["valence"] = max(-1.0, min(1.0, 0.8 * a["valence"] + sign * s))        # fast, event-driven
+        wake = s if kind in ("novelty", "failure", "stuck") else 0.4 * s          # surprise/threat raise arousal most
+        a["arousal"] = max(0.0, min(1.0, 0.7 * a["arousal"] + wake))
+        a["mood"] = 0.95 * a["mood"] + 0.05 * a["valence"]                        # slow: mood outlasts the moment
+        return a
+
+    def feel(self):
+        """Name the current affective state from the derived valence x arousal (the circumplex/affect grid --
+        naming a continuous state, not a scripted mood)."""
+        v, ar = self.affect["valence"], self.affect["arousal"]
+        if ar < 0.2 and abs(v) < 0.2:   name = "calm, a bit idle"
+        elif v > 0.3 and ar > 0.4:      name = "engaged and doing well"
+        elif v > 0.3:                   name = "quietly satisfied"
+        elif v < -0.3 and ar > 0.4:     name = "frustrated -- I keep missing"
+        elif v < -0.3:                  name = "discouraged"
+        elif ar > 0.5:                  name = "curious and activated"
+        else:                           name = "neutral"
+        return name, {k: round(x, 2) for k, x in self.affect.items()}
+
     def think_aloud(self, seed=None, steps=4):
         """AUTONOMOUS INTERNAL MONOLOGUE -- a self-driven train of thought. It takes a topic (its
         own curiosity), REFLECTS on it (deliberates), notices if it's LOOPING (metacognition),
@@ -758,6 +794,7 @@ class Brain(nn.Module):
         if not text:                                    # nothing said -> be self-directed
             if self.learn:
                 self.reflect()                          # REFLECTION: what it was unsure on -> new gaps to learn
+                if self.affect["arousal"] < 0.15: self.sleep()   # AFFECT modulates idle: calm/settled -> consolidate
                 if not any(not g["done"] for g in self.goals):
                     self.propose_goal()                 # no goal -> DEFINE ITS OWN (from a gap or its curiosity)
                 if any(not g["done"] for g in self.goals):
@@ -783,6 +820,7 @@ class Brain(nn.Module):
                 calc = self._tool_calc(text)            # AGENCY: exact arithmetic tool -- right, not a guess
                 if calc is not None:
                     self.log_episode("answered", f"{text} = {calc}")
+                    self.appraise("success", 0.6)       # solved it exactly -> satisfaction
                     return {"answer": calc, "tool": "calc"}
                 reasoned = self.reason(text)            # else WORKING-MEMORY-augmented multi-step reasoning
                 if reasoned.strip():
@@ -790,9 +828,11 @@ class Brain(nn.Module):
             cons, ans = self._self_consistency(chat)        # a bare question is out-of-distribution and the
             if cons >= self.consistency_min:                # honesty gate then over-abstains on what it knows
                 self.log_episode("answered", ans[:80])      # (consistency is the best signal we have at 284M --
+                self.appraise("success", min(1.0, cons - self.consistency_min + 0.2))   # knew it -> satisfaction
                 return {"answer": ans[:200]}                #  nothing cleanly separates knowledge from confident
                 #   confabulation at this scale; scale-limited)
             self._recent_lowconf.append(text)               # unsure -> REFLECT on it at idle (metacognition->learning)
+            self.appraise("failure", min(1.0, self.consistency_min - cons + 0.2))   # didn't know -> a dip + arousal
             if not self.learn:                              # inference-only: just be honest
                 return {"answer": "I don't know."}
             reasoned = self._deliberate(text)               # not directly sure -> DELIBERATE before giving up
@@ -810,13 +850,17 @@ class Brain(nn.Module):
             tr = {"answer": "I don't know -- let me find out.", "didnt_know": topic}
             if obs["result"]:
                 r = obs["result"]; tr["looked_up"] = (r[:140] + "...") if len(r) > 140 else r; tr["via"] = obs["tool"]
+                self.appraise("learned", 0.5)           # found it out and learned it -> recovery/interest
                 grew = self._maybe_grow()
                 if grew: tr["grew"] = f"{grew[0]:,} -> {grew[1]:,} params"
             else:
                 tr["couldnt_find"] = topic
+                self.appraise("stuck", 0.5)             # couldn't find it -> stuck
             return tr
         self.log_episode("said", text); self.note_user("told", text)   # a statement -> autobiography + theory of mind
-        return self.think(text)                             # -> learn + wonder + look up
+        tr = self.think(text)                               # -> learn + wonder + look up
+        if tr.get("learned"): self.appraise("learned", 0.5)   # took in something new -> interest
+        return tr
 
     # ================= WIRED: seek (retrieve from memory) =================
     # No stopword/pronoun lists. Similarity uses self-information-weighted
@@ -970,7 +1014,7 @@ class Brain(nn.Module):
                    if self.NAME not in t and not t.startswith(("My name", "I "))]
         self._atomic_save(learned, self.MEM_FILE, _torch_save=False)
         # AUTOBIOGRAPHICAL timeline + THEORY-OF-MIND user model survive the session too
-        self._atomic_save({"episodes": self.episodes[-500:], "user": self.user_model},
+        self._atomic_save({"episodes": self.episodes[-500:], "user": self.user_model, "affect": self.affect},
                           self.EPISODE_FILE, _torch_save=False)
 
     def _load_memory(self):
@@ -981,6 +1025,7 @@ class Brain(nn.Module):
             d = json.load(open(self.EPISODE_FILE))
             self.episodes = d.get("episodes", [])
             self.user_model = d.get("user", self.user_model)
+            self.affect = d.get("affect", self.affect)      # mood persists across sessions too
             self._turn = self.episodes[-1]["t"] if self.episodes else 0
 
     # ================= AUTONOMOUS CONTROLLER (no hardcoded routing) =================
