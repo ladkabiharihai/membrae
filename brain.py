@@ -70,6 +70,7 @@ class Brain(nn.Module):
         self._last_topic = None    # the topic its curiosity is currently chasing
         self.self_model = None     # SELF-MODEL: architecture facts DERIVED from the live model (built in
         self.goals = []            #   _derive_self after the LM loads; re-derived on grow). Not hand-set.
+        self._gaps = []            # things it honestly couldn't answer -> seeds for self-defined goals
         self.mem = H.FastWeightMemory(self.lm.d).to(DEVICE)   # IN-WEIGHTS subconscious: surprise-write,
                                                               # additive recall, decay (forget), sleep-consolidate
         # Everything below is DERIVED from the data/model, never hand-set, and is
@@ -603,6 +604,15 @@ class Brain(nn.Module):
             acted.append({"goal": g["text"], "progress": round(g["progress"], 2), "done": g["done"]})
         return acted
 
+    def propose_goal(self):
+        """DEFINE ITS OWN goal -- self-directed, derived from its own experience: a gap it recently hit
+        (something it honestly couldn't answer) if any, else its curiosity (what its last thought makes it
+        wonder). Not given, not hand-set -- it decides what to pursue from its own surprise."""
+        seed = self._gaps.pop() if self._gaps else self._last_topic   # a real gap it noticed > free curiosity
+        topic = self.wonder(seed) or seed                             # curiosity turns the seed into a topic
+        if not topic or not topic.strip(): return None
+        return self.set_goal(f"learn about {topic.strip()}", kind="learn")
+
     def think_aloud(self, seed=None, steps=4):
         """AUTONOMOUS INTERNAL MONOLOGUE -- a self-driven train of thought. It takes a topic (its
         own curiosity), REFLECTS on it (deliberates), notices if it's LOOPING (metacognition),
@@ -641,10 +651,15 @@ class Brain(nn.Module):
         Growth fires by itself when it keeps failing to learn. There is no 'teach mode'
         or 'child mode' -- this is just how it lives."""
         text = (text or "").strip()
-        if not text:                                    # nothing said -> pursue its GOALS if it has any, else wander
-            if self.learn and any(not g["done"] for g in self.goals):
-                return {"pursued_goals": self.pursue_goals()}
-            return {"monologue": self.think_aloud(steps=4)} if self.learn else {"answer": "(I'm listening.)"}
+        if not text:                                    # nothing said -> be self-directed
+            if self.learn:
+                if not any(not g["done"] for g in self.goals):
+                    self.propose_goal()                 # no goal -> DEFINE ITS OWN (from a gap or its curiosity)
+                if any(not g["done"] for g in self.goals):
+                    return {"pursued_goals": self.pursue_goals(),
+                            "goals": [g["text"] for g in self.goals if not g["done"]]}
+                return {"monologue": self.think_aloud(steps=4)}   # couldn't form a goal -> just wander
+            return {"answer": "(I'm listening.)"}
         if self.is_self_question(text):                 # SELF-AWARENESS: answer about ITSELF from the self-model
             return {"answer": self.self_report(text), "self": True}   #   (reliable -- not raw-LM confabulation)
         if text.endswith("?"):
@@ -667,6 +682,7 @@ class Brain(nn.Module):
             if self._self_consistency(f"{chat} {reasoned}")[0] >= self.consistency_min:
                 return {"answer": reasoned[:200], "deliberated": True}
             topic = self.wonder(text) or text.rstrip("? ").split(" ")[-1]
+            if topic and topic not in self._gaps: self._gaps.append(topic)   # remember the gap -> a future self-goal
             tr = {"answer": "I don't know -- let me find out.", "didnt_know": topic}
             info = self.search(topic)                       # curious -> look it up and learn
             if info:
