@@ -79,6 +79,8 @@ class Brain(nn.Module):
         self._recent_lowconf = []  # questions it was unsure on -> reflected into gaps/goals at idle
         self._turn = 0             # monotonic step counter -> orders episodes (no wall-clock needed)
         self.affect = {"valence": 0.0, "arousal": 0.0, "mood": 0.0}   # FUNCTIONAL EMOTION: derived affect state
+        self.provenance = {}       # GROUNDING: topic -> source URL it learned the fact from ('how do you know?')
+        self._last_source = None
         self.mem = H.FastWeightMemory(self.lm.d).to(DEVICE)   # IN-WEIGHTS subconscious: surprise-write,
                                                               # additive recall, decay (forget), sleep-consolidate
         # Everything below is DERIVED from the data/model, never hand-set, and is
@@ -117,7 +119,8 @@ class Brain(nn.Module):
                  ("grow when I saturate", "_maybe_grow"), ("keep a subconscious memory", "mem"),
                  ("hold items in working memory", "wm_push"), ("remember our conversation", "log_episode"),
                  ("use tools and learn from the result", "act"), ("track what you've told me", "note_user"),
-                 ("reflect on what I'm unsure of", "reflect"), ("have moods that shape what I do next", "appraise")]]
+                 ("reflect on what I'm unsure of", "reflect"), ("have moods that shape what I do next", "appraise"),
+                 ("cite where I looked something up", "provenance_report")]]
         return ", ".join(n for n, ok in have if ok)
 
     def recalibrate(self):
@@ -442,29 +445,54 @@ class Brain(nn.Module):
         return entity if len(entity) > 1 else None
 
     # ================= LOOK IT UP: search the world and learn =================
-    def search(self, query):
-        """Look the answer up on the open internet (Wikipedia) -- what a child does
-        when no one around knows. Returns a short factual summary, or None."""
+    def search(self, query, deep=False):
+        """Look the answer up on the open internet (Wikipedia) and GROUND it in a source -- records the page URL
+        in self._last_source so the learned fact carries provenance ('how do you know?'). deep=True follows the
+        page and crawls the fuller article when the summary is too thin. Returns a factual summary, or None."""
         import urllib.request, urllib.parse, json as _J
         UA = {"User-Agent": "Pragnosia/1.0 (autonomous learning agent)"}   # Wikipedia requires it
         def _get(url):
             with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=8) as r:
                 return _J.load(r)
+        self._last_source = None
         try:
             api = "https://en.wikipedia.org/w/api.php?" + urllib.parse.urlencode(
                 {"action": "opensearch", "search": query, "limit": 1, "format": "json"})
             hit = _get(api)
             if not hit[1]: return None
             title = hit[1][0].replace(" ", "_")
+            self._last_source = "https://en.wikipedia.org/wiki/" + urllib.parse.quote(title)
             data = _get("https://en.wikipedia.org/api/rest_v1/page/summary/" + urllib.parse.quote(title))
             ex = data.get("extract")
+            if deep and (not ex or len(ex) < 200):        # summary too thin -> CRAWL the fuller article
+                full = self.crawl(self._last_source)
+                if full: ex = full
             return ex if ex and len(ex) > 20 else None
         except Exception:
             return None
 
+    def crawl(self, url, limit=1200):
+        """Fetch an arbitrary web page and extract readable text (strip scripts/styles/tags) -- lets it follow a
+        source beyond a summary. Bounded and best-effort; records the URL as the current source for provenance."""
+        import urllib.request
+        UA = {"User-Agent": "Pragnosia/1.0 (autonomous learning agent)"}
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=8) as r:
+                html = r.read(200000).decode("utf-8", "ignore")
+        except Exception:
+            return None
+        html = re.sub(r"(?is)<(script|style|head|nav|footer).*?</\1>", " ", html)   # drop non-content
+        text = re.sub(r"(?s)<[^>]+>", " ", html)                                     # strip tags
+        text = re.sub(r"&[a-z#0-9]+;", " ", text)                                    # crude entity strip
+        text = re.sub(r"\s+", " ", text).strip()
+        self._last_source = url
+        return text[:limit] if len(text) > 80 else None
+
     def learn_from_web(self, query):
-        text = self.search(query)
-        if text: self.teach(text, max_steps=40)
+        text = self.search(query, deep=True)
+        if text:
+            self.teach(text, max_steps=40)
+            if self._last_source: self.provenance[query.lower()] = self._last_source   # GROUNDING: remember the source
         return text
 
     # ================= GROW when it saturates =================
@@ -702,9 +730,11 @@ class Brain(nn.Module):
             mem = self._retrieve(goal)
             if mem: result, tool = mem, "recall"
             elif self.learn:
-                web = self.search(goal)
+                web = self.search(goal, deep=True)
                 if web: result, tool = web, "search"
-        if result and tool == "search": self.teach(f"{goal}: {result}")          # LEARN from the world
+        if result and tool == "search":
+            self.teach(f"{goal}: {result}")                                      # LEARN from the world
+            if self._last_source: self.provenance[goal.lower()] = self._last_source   # GROUNDING: cite the source
         elif result and tool == "calc" and self.learn: self.teach(f"{goal} = {result}")
         self.log_episode("acted", f"{goal} -[{tool or 'none'}]-> {result}")
         return {"goal": goal, "tool": tool, "result": result, "learned": bool(result and tool != "recall")}
@@ -752,6 +782,25 @@ class Brain(nn.Module):
         elif ar > 0.5:                  name = "curious and activated"
         else:                           name = "neutral"
         return name, {k: round(x, 2) for k, x in self.affect.items()}
+
+    def is_provenance_question(self, text):
+        t = (text or "").lower()
+        return any(k in t for k in ("how do you know", "how did you know", "where did you learn", "what's your source",
+                   "what is your source", "says who", "how are you sure", "where did you hear"))
+
+    def provenance_report(self, text):
+        """GROUNDING: answer 'how do you know X?' from recorded sources -- honest that most knowledge is from
+        training (uncitable) while looked-up facts carry a real source URL."""
+        t = (text or "").lower()
+        for topic, src in reversed(list(self.provenance.items())):
+            if topic in t or any(len(w) > 3 and w in t for w in topic.split()):
+                return f"I looked that up -- I learned it from {src}."
+        if self.provenance:
+            topic, src = list(self.provenance.items())[-1]
+            return (f"Most of what I know is from my training, so I can't cite a source. The last thing I looked "
+                    f"up was '{topic}', from {src}.")
+        return ("Most of what I know comes from my training, so I usually can't cite a source. When I look "
+                "something up, though, I remember exactly where I got it.")
 
     def think_aloud(self, seed=None, steps=4):
         """AUTONOMOUS INTERNAL MONOLOGUE -- a self-driven train of thought. It takes a topic (its
@@ -807,6 +856,8 @@ class Brain(nn.Module):
         if self.is_memory_question(text):               # AUTOBIOGRAPHICAL recall: from the episode timeline (sharp)
             self.log_episode("asked", text)
             return {"answer": self.memory_report(text), "memory": True}
+        if self.is_provenance_question(text):           # GROUNDING: 'how do you know?' -> cite the real source
+            return {"answer": self.provenance_report(text), "grounded": True}
         # a question is a '?' OR an interrogative opener (people drop the '?' -> don't mis-file it as a fact to learn)
         _qword = text.lower().split(" ")[0] in ("what", "who", "how", "why", "when", "where", "which", "whose",
                  "whom", "is", "are", "was", "were", "do", "does", "did", "can", "could", "will", "would", "should", "tell")
@@ -1014,8 +1065,8 @@ class Brain(nn.Module):
                    if self.NAME not in t and not t.startswith(("My name", "I "))]
         self._atomic_save(learned, self.MEM_FILE, _torch_save=False)
         # AUTOBIOGRAPHICAL timeline + THEORY-OF-MIND user model survive the session too
-        self._atomic_save({"episodes": self.episodes[-500:], "user": self.user_model, "affect": self.affect},
-                          self.EPISODE_FILE, _torch_save=False)
+        self._atomic_save({"episodes": self.episodes[-500:], "user": self.user_model, "affect": self.affect,
+                           "provenance": self.provenance}, self.EPISODE_FILE, _torch_save=False)
 
     def _load_memory(self):
         if os.path.exists(self.MEM_FILE):
@@ -1026,6 +1077,7 @@ class Brain(nn.Module):
             self.episodes = d.get("episodes", [])
             self.user_model = d.get("user", self.user_model)
             self.affect = d.get("affect", self.affect)      # mood persists across sessions too
+            self.provenance = d.get("provenance", {})        # and the sources of looked-up facts
             self._turn = self.episodes[-1]["t"] if self.episodes else 0
 
     # ================= AUTONOMOUS CONTROLLER (no hardcoded routing) =================
