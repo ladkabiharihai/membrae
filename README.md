@@ -43,12 +43,14 @@ O(1)/token** with no KV-cache.
 
 ## Honest status
 
-- The spin-dominant win is shown at small scale (3 seeds) and the carrier is causally load-bearing at 1B — but
-  the **matched same-corpus transformer baseline** (the experiment that proves the design *wins* rather than
-  only that the carrier is *used*) is still to run.
-- The models are undertrained for their size; multi-hop reasoning is weak — but a **token-matched transformer
-  (Cerebras-GPT-1.3B) is also at chance on ARC-Challenge**, so that weakness is *scale/emergence*, not the
-  spin architecture.
+- The spin-dominant *quality* win is shown at small scale (3 seeds); the *causal-dominance* property is shown
+  at 284M→1B and **strengthens with scale** (needs no baseline). What we do **not** claim is that the design
+  beats a transformer at 1B — a **matched 1B transformer is outside our compute budget**; the affordable crux
+  is a matched `carrier="none"` transformer at 284M, still to run.
+- The models are undertrained for their size; multi-hop reasoning is weak. A published transformer of similar
+  size (Cerebras-GPT-1.3B) is *also* at chance on ARC-Challenge, which is **consistent with** a scale reading —
+  but that is a **non-controlled** comparison (different corpus/tokenizer/recipe), reported as illustration only,
+  not evidence for the design.
 - The honesty signal is functional but does not yet cleanly separate knowledge from confident confabulation.
 - We report every measured number, including the ones that don't flatter the design.
 
