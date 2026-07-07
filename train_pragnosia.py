@@ -117,7 +117,7 @@ def _long_step(m, td, bs, W, ctx, actx, accum, bptt=False):
     for w in range(W):
         xw = x[:, w*ctx:(w+1)*ctx]; yw = y[:, w*ctx:(w+1)*ctx]
         with actx:
-            lg, S = m.forward(xw, state=S, return_state=True)
+            lg, S = m(xw, state=S, return_state=True)   # m(...) not m.forward(...) -> uses torch.compile (~2.8x)
             lw = F.cross_entropy(lg.reshape(-1, VOC), yw.reshape(-1))
         tot += lw.item()
         if bptt:
@@ -137,7 +137,7 @@ def _val_long(m, vd, W, ctx, bs, actx, iters=20):
         for w in range(W):
             xw = x[:, w*ctx:(w+1)*ctx]; yw = y[:, w*ctx:(w+1)*ctx]
             with actx:
-                lg, S = m.forward(xw, state=S, return_state=True)
+                lg, S = m(xw, state=S, return_state=True)   # compiled path
             tot += F.cross_entropy(lg.reshape(-1, VOC), yw.reshape(-1)).item() * yw.numel(); n += yw.numel()
     m.train(); return math.exp(tot / n)
 
@@ -220,7 +220,7 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     # init `best` from the RESUMED model's own val ppl, so an early step can never overwrite a
     # known-good checkpoint -- save-on-best only fires on a real improvement.
     if resume and os.path.exists(CFG["ckpt"]):
-        best = _val_long(m, vd, LONG_W, CFG["ctx"], max(2, bs // 2), actx) if LONG_W > 1 else H.val_ppl(m, vd, iters=15)
+        best = _val_long(fwd, vd, LONG_W, CFG["ctx"], max(2, bs // 2), actx) if LONG_W > 1 else H.val_ppl(m, vd, iters=15)
     else:
         best = 1e9
     if best < 1e9: print(f"resumed model val_ppl={best:.2f} -- will only save if training beats it", flush=True)
@@ -291,7 +291,7 @@ def main(steps, lr, resume, override_bs, grow_enabled):
             Wt = _sample_W(it, steps, LONG_W) if LONG_MIX else LONG_W   # this step's window count (curriculum if mixed)
             ll = 0.0
             for _ in range(accum):
-                ll += _long_step(m, td, bs, Wt, CFG["ctx"], actx, accum, LONG_BPTT)
+                ll += _long_step(fwd, td, bs, Wt, CFG["ctx"], actx, accum, LONG_BPTT)
             l = ll / accum
         else:
             Wt = 1
@@ -330,10 +330,10 @@ def main(steps, lr, resume, override_bs, grow_enabled):
         if it % val_every == 0 or it == steps:            # validation + checkpoint
             pm = None
             if LONG_MIX:                                   # multi-length: track short AND long retention together
-                pm = {w: _val_long(m, vd, w, CFG["ctx"], max(2, bs // 2), actx) for w in sorted({1, max(2, LONG_W // 4), LONG_W})}
+                pm = {w: _val_long(fwd, vd, w, CFG["ctx"], max(2, bs // 2), actx) for w in sorted({1, max(2, LONG_W // 4), LONG_W})}
                 ppl = pm[LONG_W]                           # the long-context ppl drives best/save
             elif LONG_W > 1:                               # fixed long-ctx: val WITH the cross-window carry
-                ppl = _val_long(m, vd, LONG_W, CFG["ctx"], max(2, bs // 2), actx)
+                ppl = _val_long(fwd, vd, LONG_W, CFG["ctx"], max(2, bs // 2), actx)
             else:
                 m.eval(); tot = n = 0
                 with torch.no_grad(), actx:
