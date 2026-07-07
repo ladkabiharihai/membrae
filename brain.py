@@ -68,25 +68,45 @@ class Brain(nn.Module):
         self.store = []            # retrieval memory (real seek faculty), (text, key_emb)
         self._replay = None
         self._last_topic = None    # the topic its curiosity is currently chasing
-        # --- SELF-MODEL (self-awareness): a structured, HONEST self-description the controller answers
-        # self-questions FROM -- reliably, instead of letting the raw LM confabulate about itself. This is
-        # the "self" the LM has none of by construction; it lives in the controller and is reportable.
-        self.self_model = {
-            "name": "Pragnosia",
-            "kind": "a small recurrent language model",
-            "core": "a diagonal-complex spin carrier is my core token-mixer  I carry state in the phase of a rotating recurrence, run as a parallel scan; attention is only a periodic helper",
-            "abilities": "I recall facts taught to me, reason step by step by deliberating, hold a short train of thought, seek things up, and grow myself when I saturate",
-            "limits": "I am small and undertrained  I often get multi-step reasoning wrong, I cannot yet reliably tell what I truly know from a confident guess, and I lack long-range verbatim memory",
-            "values": "honesty about what I don't know, curiosity, and clarity",
-        }
-        self.goals = []            # GOALS: each {text, kind, progress, done, notes}; pursued when idle
+        self.self_model = None     # SELF-MODEL: architecture facts DERIVED from the live model (built in
+        self.goals = []            #   _derive_self after the LM loads; re-derived on grow). Not hand-set.
         self.mem = H.FastWeightMemory(self.lm.d).to(DEVICE)   # IN-WEIGHTS subconscious: surprise-write,
                                                               # additive recall, decay (forget), sleep-consolidate
         # Everything below is DERIVED from the data/model, never hand-set, and is
         # re-derived by recalibrate() as the brain grows. Nothing hardcoded.
         self.recalibrate()
+        self.self_model = self._derive_self()   # derive the self-facts from the live model (post-load)
         self._install_identity()
         self._load_memory()        # restore facts learned in earlier sessions
+
+    def _derive_self(self):
+        """Build the self-description by INSPECTING the live model -- size, layer mix, carrier mode -- so it
+        stays true as the model grows, instead of hand-written strings. Only the name is a given (a name
+        can't be derived from data); the rest is read off the actual object + measured behaviour."""
+        nl = len(self.lm.blocks)
+        ns = sum(1 for b in self.lm.blocks if isinstance(b, H.SpinBlock))
+        na = sum(1 for b in self.lm.blocks if isinstance(b, H.Block))
+        mode = getattr(self.lm, "carrier_mode", "single")
+        if mode == "spin_dominant" and ns:
+            core = (f"my core token-mixer is a spin carrier in {ns} of {nl} layers, with attention in the "
+                    f"other {na}; I carry state in the phase of a rotating recurrence run as a parallel scan")
+        else:
+            core = f"I mix tokens with a {mode} carrier across {nl} layers plus attention"
+        return {
+            "name": "Pragnosia",                                    # a name is declared, not derivable
+            "kind": f"a {self.n_params()/1e6:.0f}M-parameter recurrent language model",  # read from the model
+            "core": core,                                           # read from the model's block structure
+            "faculties": self._wired_faculties(),                   # what the controller actually has wired
+            "values": "honesty about what I don't know, curiosity, and clarity",   # a stated aim, not a metric
+        }
+
+    def _wired_faculties(self):
+        """Report the faculties that are ACTUALLY present as methods -- not a claim, a fact about this object."""
+        have = [(n, hasattr(self, m)) for n, m in
+                [("recall taught facts", "teach"), ("deliberate step by step", "_deliberate"),
+                 ("hold a train of thought", "think_aloud"), ("seek things up", "search"),
+                 ("grow when I saturate", "_maybe_grow"), ("keep a subconscious memory", "mem")]]
+        return ", ".join(n for n, ok in have if ok)
 
     def recalibrate(self):
         """Re-derive ALL of the brain's internal scales from its current data and
@@ -522,27 +542,34 @@ class Brain(nn.Module):
         t = (text or "").lower()
         return any(k in t for k in self._SELF_Q)
 
+    def _honest_limits(self):
+        """Limits stated from the model's OWN calibrated state, not a hand-written essay: it knows it
+        abstains below its derived confidence boundary and that the boundary can't fully separate
+        knowledge from confident confabulation (the measured honesty gap)."""
+        return (f"I judge my own confidence against a boundary I derive from my data (currently "
+                f"{self.abstain_threshold:.2f}), and I abstain below it -- but that boundary does not yet "
+                f"cleanly separate what I know from a confident guess, so I can be wrong while sounding sure")
+
     def self_description(self, brief=False):
         sm = self.self_model
         if brief: return f"I am {sm['name']}, {sm['kind']}."
-        return (f"I am {sm['name']}, {sm['kind']}. {sm['core'][0].upper()+sm['core'][1:]}. "
-                f"{sm['abilities'][0].upper()+sm['abilities'][1:]}. Honestly: {sm['limits']}. "
-                f"I value {sm['values']}.")
+        return (f"I am {sm['name']}, {sm['kind']}. {sm['core'][0].upper()+sm['core'][1:]}. I can "
+                f"{sm['faculties']}. Honestly: {self._honest_limits()}. I value {sm['values']}.")
 
     def self_report(self, text):
-        """Answer a self-referential question FROM the self-model (reliable), not the raw LM."""
+        """Answer a self-referential question from the DERIVED self-model + measured state (not canned)."""
         t = (text or "").lower(); sm = self.self_model
         if any(k in t for k in ("goal", "want", "trying to", "working on")):
             live = [g for g in self.goals if not g["done"]]
             if not live: return "I have no active goal right now  ask me to pursue one, and I will."
             return "My current goals: " + "; ".join(f"{g['text']} ({int(g['progress']*100)}% there)" for g in live) + "."
         if any(k in t for k in ("conscious", "alive", "sentient", "feel", "do you know yourself")):
-            return ("No  I'm a language model, not a conscious being. I do keep a stable self-model and I "
-                    "track what I know, but that is mechanism, not experience.")
+            return ("No  I'm a language model, not a conscious being. I keep a self-model and track my own "
+                    "confidence, but that is mechanism, not experience.")
         if any(k in t for k in ("can't", "cannot", "limitation", "weak", "bad at")):
-            return "Honestly: " + sm["limits"] + "."
+            return "Honestly: " + self._honest_limits() + "."
         if any(k in t for k in ("can you do", "able to", "abilities", "what can you", "good at")):
-            return sm["abilities"][0].upper() + sm["abilities"][1:] + "."
+            return "I can " + sm["faculties"] + "."
         if any(k in t for k in ("how do you work", "how do you think", "how you work")):
             return sm["core"][0].upper() + sm["core"][1:] + "."
         if any(k in t for k in ("value", "believe in", "care about")):
