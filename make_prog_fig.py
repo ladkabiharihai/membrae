@@ -1,9 +1,9 @@
 """Progression figure across grown sizes (284M/565M/706M): 3 mini-panels. Emits a light SVG (paper) and a
 dark SVG (site). Data is the measured numbers from our tests."""
-SIZES = ["284M", "565M", "706M"]
-PANELS = [("Validation ppl", [24.5, 22.0, 21.97], True),   # lower better
-          ("LAMBADA  %", [19.0, 21.7, 24.4], False),        # higher better
-          ("Multi-hop  /10", [2, 3, 4], False)]
+SIZES = ["284M", "565M", "706M", "~1B"]
+PANELS = [("Validation ppl", [24.5, 22.0, 21.97, 20.1], True),   # lower better
+          ("LAMBADA  %", [19.0, 21.7, 24.4, 25.3], False),        # higher better
+          ("Multi-hop  /10", [2, 3, 4, 4], False)]
 
 def svg(dark):
     ink   = "#e8ecf8" if dark else "#16171d"
