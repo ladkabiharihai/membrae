@@ -1,0 +1,50 @@
+<svg viewBox="0 0 660 210" xmlns="http://www.w3.org/2000/svg" font-family="Georgia,serif">
+<text x="120" y="26" text-anchor="middle" font-size="13" font-weight="700" fill="#16171d">Validation ppl</text>
+<text x="120" y="38" text-anchor="middle" font-size="9" font-style="italic" fill="#666">lower is better</text>
+<line x1="48" y1="150" x2="210" y2="150" stroke="#eee"/>
+<polyline points="54,57 104,102 154,102 204,136" fill="none" stroke="#d6336c" stroke-width="2.5"/>
+<circle cx="54" cy="57" r="4" fill="#d6336c"/>
+<text x="54" y="48" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">24.5</text>
+<text x="54" y="165" text-anchor="middle" font-size="9.5" fill="#666">284M</text>
+<circle cx="104" cy="102" r="4" fill="#d6336c"/>
+<text x="104" y="93" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">22.0</text>
+<text x="104" y="165" text-anchor="middle" font-size="9.5" fill="#666">565M</text>
+<circle cx="154" cy="102" r="4" fill="#d6336c"/>
+<text x="154" y="93" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">21.97</text>
+<text x="154" y="165" text-anchor="middle" font-size="9.5" fill="#666">706M</text>
+<circle cx="204" cy="136" r="4" fill="#d6336c"/>
+<text x="204" y="127" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">20.1</text>
+<text x="204" y="165" text-anchor="middle" font-size="9.5" fill="#666">~1B</text>
+<text x="335" y="26" text-anchor="middle" font-size="13" font-weight="700" fill="#16171d">LAMBADA  %</text>
+<text x="335" y="38" text-anchor="middle" font-size="9" font-style="italic" fill="#666">higher is better</text>
+<line x1="263" y1="150" x2="425" y2="150" stroke="#eee"/>
+<polyline points="269,140 319,103 369,66 419,54" fill="none" stroke="#1aa88a" stroke-width="2.5"/>
+<circle cx="269" cy="140" r="4" fill="#1aa88a"/>
+<text x="269" y="131" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">19.0</text>
+<text x="269" y="165" text-anchor="middle" font-size="9.5" fill="#666">284M</text>
+<circle cx="319" cy="103" r="4" fill="#1aa88a"/>
+<text x="319" y="94" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">21.7</text>
+<text x="319" y="165" text-anchor="middle" font-size="9.5" fill="#666">565M</text>
+<circle cx="369" cy="66" r="4" fill="#1aa88a"/>
+<text x="369" y="57" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">24.4</text>
+<text x="369" y="165" text-anchor="middle" font-size="9.5" fill="#666">706M</text>
+<circle cx="419" cy="54" r="4" fill="#1aa88a"/>
+<text x="419" y="45" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">25.3</text>
+<text x="419" y="165" text-anchor="middle" font-size="9.5" fill="#666">~1B</text>
+<text x="550" y="26" text-anchor="middle" font-size="13" font-weight="700" fill="#16171d">Multi-hop  /10</text>
+<text x="550" y="38" text-anchor="middle" font-size="9" font-style="italic" fill="#666">higher is better</text>
+<line x1="478" y1="150" x2="640" y2="150" stroke="#eee"/>
+<polyline points="484,146 534,97 584,48 634,48" fill="none" stroke="#1aa88a" stroke-width="2.5"/>
+<circle cx="484" cy="146" r="4" fill="#1aa88a"/>
+<text x="484" y="137" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">2</text>
+<text x="484" y="165" text-anchor="middle" font-size="9.5" fill="#666">284M</text>
+<circle cx="534" cy="97" r="4" fill="#1aa88a"/>
+<text x="534" y="88" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">3</text>
+<text x="534" y="165" text-anchor="middle" font-size="9.5" fill="#666">565M</text>
+<circle cx="584" cy="48" r="4" fill="#1aa88a"/>
+<text x="584" y="39" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">4</text>
+<text x="584" y="165" text-anchor="middle" font-size="9.5" fill="#666">706M</text>
+<circle cx="634" cy="48" r="4" fill="#1aa88a"/>
+<text x="634" y="39" text-anchor="middle" font-size="10.5" font-weight="700" fill="#16171d">4</text>
+<text x="634" y="165" text-anchor="middle" font-size="9.5" fill="#666">~1B</text>
+</svg>

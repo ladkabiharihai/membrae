@@ -1,0 +1,6 @@
+<svg viewBox="0 0 440 210" xmlns="http://www.w3.org/2000/svg" font-family="Georgia,serif">
+<line x1="62" y1="175" x2="410" y2="175" stroke="#bbb" stroke-width="1"/><line x1="62" y1="25" x2="62" y2="175" stroke="#bbb" stroke-width="1"/>
+<text x="56" y="30" text-anchor="end" font-size="9" fill="#999">carrier %</text>
+<polyline points="70,36 266,129 390,166" fill="none" stroke="#d6336c" stroke-width="2"/><circle cx="70" cy="36" r="4" fill="#d6336c"/><text x="70" y="27" text-anchor="middle" font-size="10" font-weight="700" fill="#16171d">5.76%</text><text x="70" y="190" text-anchor="middle" font-size="9.5" fill="#555">21M</text><circle cx="266" cy="129" r="4" fill="#d6336c"/><text x="266" y="120" text-anchor="middle" font-size="10" font-weight="700" fill="#16171d">1.9%</text><text x="266" y="190" text-anchor="middle" font-size="9.5" fill="#555">276M</text><circle cx="390" cy="166" r="4" fill="#d6336c"/><text x="390" y="157" text-anchor="middle" font-size="10" font-weight="700" fill="#16171d">0.37%</text><text x="390" y="190" text-anchor="middle" font-size="9.5" fill="#555">1.4B</text>
+<text x="390" y="182" text-anchor="middle" font-size="8.5" fill="#999">causal: 0.028% of loss</text>
+</svg>

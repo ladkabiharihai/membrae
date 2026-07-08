@@ -1,0 +1,40 @@
+<svg viewBox="0 0 440 468" xmlns="http://www.w3.org/2000/svg" font-family="Georgia,serif">
+<defs><marker id="ar" markerWidth="8" markerHeight="8" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#999"/></marker></defs>
+<text x="96.0" y="14" text-anchor="middle" font-size="8" font-style="italic" fill="#888">spin-dominant stack</text>
+<rect x="21" y="20" width="150" height="22" rx="5" fill="#eef0f8" stroke="#9aa0c0" stroke-width="1.2"/><text x="96.0" y="34" text-anchor="middle" font-size="9.5" fill="#16171d">Tokens → Embedding + Positions</text>
+<line x1="96.0" y1="42" x2="96.0" y2="50" stroke="#999" stroke-width="1.2" marker-end="url(#ar)"/>
+<rect x="14" y="56" width="164" height="150" rx="7" fill="none" stroke="#c9c9d6" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="186" y="133" font-size="8.5" font-weight="700" fill="#555" transform="rotate(90 186 133)">repeat × N/4</text>
+<rect x="21" y="64" width="150" height="26" rx="5" fill="#ffe0bd" stroke="#e8923a" stroke-width="1.2"/><text x="96.0" y="75" text-anchor="middle" font-size="9.5" fill="#16171d">Spin block</text><text x="96.0" y="86" text-anchor="middle" font-size="7.3" fill="#666">carrier mixes tokens + MLP</text>
+<rect x="21" y="96" width="150" height="26" rx="5" fill="#ffe0bd" stroke="#e8923a" stroke-width="1.2"/><text x="96.0" y="107" text-anchor="middle" font-size="9.5" fill="#16171d">Spin block</text><text x="96.0" y="118" text-anchor="middle" font-size="7.3" fill="#666">carrier mixes tokens + MLP</text>
+<rect x="21" y="128" width="150" height="26" rx="5" fill="#ffe0bd" stroke="#e8923a" stroke-width="1.2"/><text x="96.0" y="139" text-anchor="middle" font-size="9.5" fill="#16171d">Spin block</text><text x="96.0" y="150" text-anchor="middle" font-size="7.3" fill="#666">carrier mixes tokens + MLP</text>
+<rect x="21" y="160" width="150" height="26" rx="5" fill="#ffc9de" stroke="#d6336c" stroke-width="1.2"/><text x="96.0" y="171" text-anchor="middle" font-size="9.5" fill="#16171d">Attention block</text><text x="96.0" y="182" text-anchor="middle" font-size="7.3" fill="#666">every 4th layer (helper)</text>
+<line x1="96.0" y1="206" x2="96.0" y2="214" stroke="#999" stroke-width="1.2" marker-end="url(#ar)"/>
+<rect x="21" y="220" width="150" height="20" rx="5" fill="#eef0f8" stroke="#9aa0c0" stroke-width="1.2"/><text x="96.0" y="234" text-anchor="middle" font-size="9" fill="#16171d">LayerNorm</text>
+<line x1="96.0" y1="240" x2="96.0" y2="246" stroke="#999" stroke-width="1.2" marker-end="url(#ar)"/>
+<rect x="21" y="252" width="150" height="22" rx="5" fill="#eef0f8" stroke="#9aa0c0" stroke-width="1.2"/><text x="96.0" y="266" text-anchor="middle" font-size="9.5" fill="#16171d">Head (tied) → logits</text>
+<text x="320.0" y="14" text-anchor="middle" font-size="8" font-style="italic" fill="#888">inside one spin block</text>
+<line x1="171" y1="88" x2="232" y2="70" stroke="#e8923a" stroke-width="1" stroke-dasharray="3 2"/>
+<line x1="171" y1="88" x2="232" y2="150" stroke="#e8923a" stroke-width="1" stroke-dasharray="3 2"/>
+<rect x="232" y="22" width="176" height="18" rx="5" fill="#f2f2f7" stroke="#bbb" stroke-width="1.2"/><text x="320.0" y="34" text-anchor="middle" font-size="8.5" fill="#16171d">LayerNorm</text>
+<line x1="320.0" y1="40" x2="320.0" y2="46" stroke="#999" stroke-width="1.2" marker-end="url(#ar)"/>
+<rect x="232" y="52" width="176" height="30" rx="5" fill="#ffd9a8" stroke="#e8923a" stroke-width="1.2"/><text x="320.0" y="65" text-anchor="middle" font-size="9" fill="#16171d">SPIN CARRIER  (token mixer)</text><text x="320.0" y="76" text-anchor="middle" font-size="7.3" fill="#666">diagonal-complex recurrence · gated residual</text>
+<text x="410" y="70" font-size="8" fill="#e8923a">⊕</text>
+<line x1="320.0" y1="82" x2="320.0" y2="88" stroke="#999" stroke-width="1.2" marker-end="url(#ar)"/>
+<rect x="232" y="94" width="176" height="18" rx="5" fill="#f2f2f7" stroke="#bbb" stroke-width="1.2"/><text x="320.0" y="106" text-anchor="middle" font-size="8.5" fill="#16171d">LayerNorm</text>
+<line x1="320.0" y1="112" x2="320.0" y2="118" stroke="#999" stroke-width="1.2" marker-end="url(#ar)"/>
+<rect x="232" y="124" width="176" height="26" rx="5" fill="#eef0f8" stroke="#9aa0c0" stroke-width="1.2"/><text x="320.0" y="140" text-anchor="middle" font-size="9" fill="#16171d">MLP  (channel mixer)</text>
+<text x="410" y="140" font-size="8" fill="#9aa0c0">⊕</text>
+<line x1="21" y1="300" x2="419" y2="300" stroke="#e0e0e8" stroke-width="1"/>
+<text x="21" y="316" font-size="9.5" font-weight="700" fill="#16171d">The spin carrier</text>
+<text x="21" y="334" font-family="Consolas,monospace" font-size="9" fill="#16171d">h_t = λ ⊙ h_(t−1) + b_t</text>
+<text x="21" y="352" font-family="Consolas,monospace" font-size="9" fill="#16171d">λ_j = exp(−exp ν_j) · exp(i θ_j)</text>
+<text x="21" y="366" font-size="8" fill="#666">a damped rotation per channel: θ_j sets the turn, |λ_j|&lt;1 the decay</text>
+<text x="21" y="388" font-size="8.5" fill="#16171d">Run as a <tspan font-weight="700">log-depth parallel associative scan</tspan> -- not a T-step loop.</text>
+<text x="21" y="402" font-size="8.5" fill="#16171d">Cost <tspan font-family="Consolas,monospace">O(T·d)</tspan> vs attention <tspan font-family="Consolas,monospace">O(T²·d)</tspan>; at inference recurrent, <tspan font-family="Consolas,monospace">O(1)</tspan>/token, no KV-cache.</text>
+<circle cx="358" cy="372" r="34" fill="none" stroke="#ddd" stroke-width="1"/>
+<line x1="320" y1="372" x2="396" y2="372" stroke="#eee"/><line x1="358" y1="334" x2="358" y2="410" stroke="#eee"/>
+<polyline points="392,372 386,353 370,341 351,340 334,350 327,368 330,386 343,399 361,402 377,395 386,380 386,363 376,349 360,344 343,348 333,361 331,377 339,391 353,398 368,396 380,386 383,371" fill="none" stroke="#e8923a" stroke-width="1.6"/>
+<line x1="358" y1="372" x2="387" y2="358" stroke="#e8923a" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="358" y="418" text-anchor="middle" font-size="7.5" fill="#888">damped rotation (the "spin")</text>
+</svg>
