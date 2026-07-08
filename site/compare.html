@@ -103,7 +103,7 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
         <li><b>Base pretrained weights are frozen after training (system-level memory/retrieval aside).</b> Learning new facts means fine-tuning or stuffing them into the prompt.</li>
         <li><b>Knowledge lives in billions of weights</b>  vast, but fixed and hard to inspect.</li>
         <li><b>Uncalibrated confidence in the base weights</b>  they often state wrong things fluently.</li>
-        <li><b>Power from scale</b>: trillions of tokens, billions–trillions of parameters.</li>
+        <li><b>Power from scale</b>: trillions of tokens, billions-trillions of parameters.</li>
       </ul></div>
     <div class="vcard prg"><div class="t">Pragnosia</div><h3>Spin as the core mixer, and keep adapting</h3>
       <ul>
@@ -142,7 +142,7 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
   <h2>Pros &amp; cons of the spinning approach</h2>
   <div class="pc">
     <div class="col pros"><h3>Where Pragnosia wins</h3><ul>
-      <li><b>Continual learning</b>  learns and persists new facts across sessions without full retraining; general skills are retained (specific-fact editing still has a stability–plasticity tension).</li>
+      <li><b>Continual learning</b>  learns and persists new facts across sessions without full retraining; general skills are retained (specific-fact editing still has a stability-plasticity tension).</li>
       <li><b>Abstains, honestly</b>  says “I don't know” on the clearly-unknowable; it does <i>not</i> yet catch confident-but-wrong facts (honesty is an open problem at this scale).</li>
       <li><b>A rigorous causal probe</b>  we measure whether the carrier is actually used: a carried-state transplant on single-carrier models (which caught the 1.4B side-channel drift below) and direct ablation on the spin-dominant design (which showed the 284M carrier is load-bearing, 306×).</li>
       <li><b>Tiny &amp; cheap</b>  runs and trains on a single laptop GPU; ~700 MB on disk.</li>
@@ -153,7 +153,7 @@ footer{border-top:1px solid var(--line);padding:36px 0;color:var(--dim);font-siz
       <li><b>The scaled 1.4B was built backwards</b>  growth diluted the single spin carrier to 0.37% of the parameters, so it's effectively an attention transformer with a vestigial spin side-channel (causal signal just 0.028% of the loss). The fix  making spin the core mixer  wins ~21% at matched params and is now validated at <b>284M</b> (carrier load-bearing: 306× ablation cost) and multi-seed-confirmed at small scale (3 seeds); the 284M run itself is one seed, and 1B replication remains.</li>
       <li><b>Weak multi-hop composition</b>  undertrained for its grown size; relational analogy, multi-step deduction and systematic generalization still lag. More tokens, not more parameters, is the lever.</li>
       <li><b>Can be confidently wrong</b> on familiar-but-incorrect facts (the same failure as big LLMs).</li>
-      <li><b>Continual learning has a stability–plasticity tension</b>  teaching a fact hard enough to recall it can interfere with close neighbours (teaching a made-up capital nudged a real country's capital); teaching gently avoids that but under-learns. General skills are retained (no broad forgetting), but reliable single-fact editing isn't solved yet.</li>
+      <li><b>Continual learning has a stability-plasticity tension</b>  teaching a fact hard enough to recall it can interfere with close neighbours (teaching a made-up capital nudged a real country's capital); teaching gently avoids that but under-learns. General skills are retained (no broad forgetting), but reliable single-fact editing isn't solved yet.</li>
       <li><b>Not a finished product</b>  it's a research substrate proving mechanisms, not a polished assistant.</li>
       <li><b>Emergence is early, not broad</b>  at the new 284M spin-dominant scale, arithmetic (3/3), world-knowledge (2/3) and theory-of-mind (2/2) genuinely emerged (up from faint seeds at 27M), but multi-step, counterfactual and causal reasoning are still 0/2  the next axis. And the honesty gate is <i>not solved</i>: consistency-voting can't separate knowledge from confident confabulation at 284M (a known fact and an unknowable score the same)  it needs scale or a redesigned signal.</li>
     </ul></div>
