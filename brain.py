@@ -627,9 +627,11 @@ class Brain(nn.Module):
         # the OTHER anchor: normal questions/statements. If the input is closest to these, it's NOT a meta-question
         # -> route to None and handle it normally. This lets the model's OWN similarity separate meta from normal,
         # instead of a hand-tuned confidence cutoff.
-        "_other":         ["what is a black hole", "what is the capital of france", "how does an engine work",
-                           "who wrote hamlet", "the sky is blue today", "tell me about photosynthesis",
-                           "define gravity", "explain how rain forms"],
+        "_other":         ["what is a black hole", "what are black holes", "what is the capital of france",
+                           "what are the planets", "what are the primary colors", "how does an engine work",
+                           "who wrote hamlet", "when did the war end", "where is mount everest",
+                           "the sky is blue today", "tell me about photosynthesis", "define gravity",
+                           "explain how rain forms", "what are the symptoms of a cold"],
     }
 
     def _route_intent(self, text):
