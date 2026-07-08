@@ -1274,8 +1274,8 @@ class Brain(nn.Module):
                     self.log_episode("answered", f"{text} = {calc}")
                     self.appraise("success", 0.6)       # solved it exactly -> satisfaction
                     return {"answer": calc, "tool": "calc"}
-                reasoned = self.reason(text)            # else WORKING-MEMORY-augmented multi-step reasoning
-                if reasoned.strip():
+                reasoned = self._deliberate(text)       # else step-by-step CoT (measured best for reasoning: 4/8
+                if reasoned.strip():                    # vs latent_think 2/8 vs greedy 1/8 on the reasoning battery)
                     return {"answer": reasoned[:240], "deliberated": True}
             cons, ans = self._self_consistency(chat)        # output-agreement signal
             knows = self.truth_probe(chat) if getattr(self, "_truth_probe", None) else 1.0   # T1.3: internal 'do I know?'
