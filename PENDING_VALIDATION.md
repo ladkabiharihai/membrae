@@ -13,9 +13,15 @@ with the 1B (learn=False on GPU) when the GPU frees up.
 | T2.5 | `latent_think(prompt,steps)` in brain.py | ponder K continuous steps then answer; check it runs + compare answer vs greedy on a multi-hop Q (does pondering help?). |
 | T2.1 | `workspace_vector()` + `generate_with_workspace(prompt,inject=)` | inject on/off ablation; NOTE: frozen-model prototype, likely needs prefix-tuning to help -- measure the on/off delta. |
 
+| T1.5 | `eval_all.py [label]` | run it -> eval_registry/<label>.json with ppl curve + graded multi-hop + calibration separation. One source of truth. |
+| T1.6 | `faculty_ablate.py` | run it -> tools/calibration/deliberation ON-vs-OFF deltas. Confirms each faculty helps. |
+| T1.7 | (in eval_all.py MULTIHOP) | graded 1/2/3-hop accuracy; run across snapshots for the token curve. |
+
 ## Batch-test command sketch
 ```
 CUDA on, Unreal closed:
   python3 /tmp/sement.py    # semantic-entropy discrimination
-  (add more probes here as tasks land)
+  python3 eval_all.py wweighted   # canonical metrics -> registry
+  python3 faculty_ablate.py       # faculty-value deltas
+  python3 /tmp/sement.py          # semantic-entropy discrimination
 ```
