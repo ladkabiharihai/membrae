@@ -10,6 +10,9 @@ with the 1B (learn=False on GPU) when the GPU frees up.
 | T1.2 | `_rephrasing_stability(q)` in brain.py | known Q -> high stability, nonsense -> low (answers drift across rephrasings). |
 | T1.4 | `verify_against_source(answer,query)` in brain.py | factual answer + source -> supported=True; wrong claim -> False/None. Needs internet. |
 
+| T2.5 | `latent_think(prompt,steps)` in brain.py | ponder K continuous steps then answer; check it runs + compare answer vs greedy on a multi-hop Q (does pondering help?). |
+| T2.1 | `workspace_vector()` + `generate_with_workspace(prompt,inject=)` | inject on/off ablation; NOTE: frozen-model prototype, likely needs prefix-tuning to help -- measure the on/off delta. |
+
 ## Batch-test command sketch
 ```
 CUDA on, Unreal closed:

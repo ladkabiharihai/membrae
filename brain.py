@@ -638,6 +638,31 @@ class Brain(nn.Module):
         answering, instead of a single-shot guess; the reasoning can draw on the subconscious."""
         return self.generate_text(f"<user> {question} Let's think step by step. <assistant>", n=80, recall=True)
 
+    @torch.no_grad()
+    def latent_think(self, prompt, steps=4, answer_n=30):
+        """LATENT THOUGHT (T2.5, Coconut-style, native to the recurrent carrier): before emitting words, extend
+        the sequence with `steps` CONTINUOUS thought-vectors -- each the model's own softmax-weighted next-token
+        embedding fed back as the next input, NEVER discretized to a token. The carrier carries state across
+        them, so it 'thinks' privately in latent space, then decodes the answer conditioned on that thought.
+        A transformer would grow its KV cache to ponder like this; the carrier ponders in its state. (Prototype
+        uses the stateless forward_embeds -- a stateful carry would make each ponder-step O(1); correctness
+        first.) Non-verbal + private, and may help multi-hop by computing intermediates before committing."""
+        ids = self.tok.encode(prompt).ids[-self.cfg["ctx"]:]
+        dt = self.lm.emb.weight.dtype
+        pos = torch.arange(len(ids), device=DEVICE)
+        h = self.lm.emb(torch.tensor([ids], device=DEVICE)) + self.lm.pos(pos)[None]     # [1,T,d]
+        for _ in range(steps):                            # ponder: continuous thought-vectors, no tokens emitted
+            logits = self.lm.forward_embeds(h)[:, -1, :].float()
+            soft = F.softmax(logits, -1) @ self.lm.emb.weight.float()                     # soft 'thought' embedding
+            h = torch.cat([h, soft.to(dt)[:, None, :]], dim=1)[:, -self.cfg["ctx"]:, :]
+        out = []                                          # then speak, conditioned on the latent thought
+        for _ in range(answer_n):
+            nx = int(self.lm.forward_embeds(h)[0, -1].float().argmax(-1))
+            if nx == 0: break
+            out.append(nx)
+            h = torch.cat([h, self.lm.emb(torch.tensor([[nx]], device=DEVICE))], dim=1)[:, -self.cfg["ctx"]:, :]
+        return self.tok.decode(out).strip()
+
     # ================= SEMANTIC ROUTING (derived, not keyword lists) =================
     # Each intent is anchored by a FEW seed phrasings (data, like identity_sentences.txt). The routing DECISION
     # is the model's OWN embedding similarity to those seeds, gated by its data-calibrated match bar -- so it
@@ -939,6 +964,39 @@ class Brain(nn.Module):
         if w.get("goal"): parts.append(f"my active goal is to {w['goal']}")
         parts.append(f"and I'm feeling {w['mood']}")
         return "; ".join(parts) + f". (integration {self.integration()})"
+
+    @torch.no_grad()
+    def workspace_vector(self):
+        """T2.1: the global workspace as a VECTOR (not just a dict) -- pool the attended content (focus, evoked
+        memory, active goal) into one d-dim summary, tinted by mood, that can be INJECTED into generation so the
+        faculties actually condition the forward pass. Returns a unit vector or None."""
+        w = self.workspace
+        parts = [self._embed(str(w[k])) for k in ("focus", "recalls", "goal") if w.get(k)]
+        if not parts: return None
+        v = torch.stack(parts).mean(0) * (1.0 + 0.3 * self.affect.get("valence", 0.0))   # mood tints it
+        return v / (v.norm() + 1e-8)
+
+    @torch.no_grad()
+    def generate_with_workspace(self, prompt, n=30, inject=True):
+        """T2.1: generate with the workspace vector PREPENDED as a soft token, so the attended state conditions
+        the forward pass (functional integration, not cosmetic). inject=False = the ablation that measures its
+        effect. PROTOTYPE: on the FROZEN model this injects an unfamiliar vector, so it likely needs light
+        prefix-tuning to be genuinely useful (like the multimodal adapter) -- the mechanism + the on/off ablation
+        harness are the deliverable now."""
+        ids = self.tok.encode(prompt).ids[-self.cfg["ctx"]:]
+        pos = torch.arange(len(ids), device=DEVICE)
+        h = self.lm.emb(torch.tensor([ids], device=DEVICE)) + self.lm.pos(pos)[None]
+        wv = self.workspace_vector() if inject else None
+        if wv is not None:                                # scale the unit vector to the embedding-norm regime
+            scale = h.norm(dim=-1).mean()
+            h = torch.cat([(wv * scale).to(h.dtype)[None, None, :], h], dim=1)
+        out = []
+        for _ in range(n):
+            nx = int(self.lm.forward_embeds(h)[0, -1].float().argmax(-1))
+            if nx == 0: break
+            out.append(nx)
+            h = torch.cat([h, self.lm.emb(torch.tensor([[nx]], device=DEVICE))], dim=1)[:, -self.cfg["ctx"]:, :]
+        return self.tok.decode(out).strip()
 
     def experience(self, world, steps=20):
         """EMBODIMENT -- learn by DOING: live in a world, perceive its state, ACT, observe the consequence
