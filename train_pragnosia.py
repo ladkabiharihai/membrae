@@ -143,8 +143,16 @@ def _val_long(m, vd, W, ctx, bs, actx, iters=20):
 
 def _sample_W(it, steps, max_W):
     """Curriculum window-count for LONG_MIX: ramp the reachable range short->long over the first half of
-    training, but ALWAYS still sample short (so short context stays sharp = replay). Power of 2 in [1, max_W]."""
-    import random
+    training, but ALWAYS still sample short (so short context stays sharp = replay). Power of 2 in [1, max_W].
+    LONG_W_WEIGHTS env (e.g. "1:0.3,2:0.1,4:0.1,8:0.1,16:0.1,32:0.3") overrides the ramp with a FIXED
+    categorical distribution -- to concentrate gradient on the long carry while keeping short replay."""
+    import random, os
+    _wd = os.environ.get("LONG_W_WEIGHTS")
+    if _wd:
+        ws, wt = [], []
+        for pair in _wd.split(","):
+            w, p = pair.split(":"); ws.append(int(w)); wt.append(float(p))
+        return random.choices(ws, weights=wt, k=1)[0]
     max_exp = max(0, int(math.log2(max_W)))
     reach = max_exp * min(1.0, it / max(1, steps * 0.5))           # 0 -> max_exp by mid-training
     return min(max_W, 1 << random.randint(0, int(reach)))          # log-uniform over [1 .. 2^reach]
