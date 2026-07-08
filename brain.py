@@ -754,12 +754,12 @@ class Brain(nn.Module):
     # Each intent is anchored by a FEW seed phrasings (data, like identity_sentences.txt). The routing DECISION
     # is the model's OWN embedding similarity to those seeds, gated by its data-calibrated match bar -- so it
     # generalizes to paraphrases the old keyword lists missed, and nothing here is a hand-set threshold.
+    # ROUTE ONLY what needs LIVE CONTROLLER STATE the LM cannot access (affect, goals, the honest-limits number,
+    # the careful consciousness stance, memory, provenance, workspace). Plain self-persona ('who are you', 'what
+    # can you do', 'what do you value') is now answered by the LM itself -- the persona is baked into the weights,
+    # so routing it is unnecessary and only adds fragility (it was the part that broke on an SFT merge).
     _INTENTS = {
-        "self.identity":  ["who are you", "what are you", "your name", "tell me about yourself", "describe yourself"],
-        "self.how":       ["how do you work", "how do you think", "how are you built"],
-        "self.can":       ["what can you do", "what are you good at", "what are you able to do", "what are you capable of"],
         "self.cant":      ["what are you bad at", "what can't you do", "your limitations", "your weakness"],
-        "self.values":    ["what do you value", "what matters to you", "what do you care about"],
         "self.conscious": ["are you conscious", "are you alive", "are you sentient", "do you have feelings"],
         "self.goals":     ["what are your goals", "what do you want", "what are you working on"],
         "self.feel":      ["how do you feel", "how are you feeling", "what is your mood right now"],
@@ -778,7 +778,12 @@ class Brain(nn.Module):
                            "the sky is blue today", "tell me about photosynthesis", "tell me about dogs",
                            "tell me about the weather", "tell me about history", "define gravity",
                            "explain how rain forms", "what are the symptoms of a cold",
-                           "hi", "hello there", "hey", "good morning", "thanks", "how are you doing"],
+                           "hi", "hello there", "hey", "good morning", "thanks", "how are you doing",
+                           # persona questions the LM now answers itself (identity baked into the weights) -> None -> LM
+                           "who are you", "what are you", "your name", "tell me about yourself",
+                           "describe yourself", "how do you work", "how do you think", "what can you do",
+                           "what are you good at", "what are you capable of", "what do you value",
+                           "what matters to you", "how were you made"],
     }
 
     def _route_intent(self, text):
