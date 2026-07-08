@@ -41,6 +41,14 @@ with the 1B (learn=False on GPU) when the GPU frees up.
   facts; activation probe (T1.3) WORKS for internal knows/doesn't-know. Wire T1.3+T1.4 as the honesty gate,
   retire semantic entropy for this model.
 
+## HONESTY GATE WIRED (hot path, validated)
+interact() now gates answers on the T1.3 activation probe (calibrated at init, chat-form anchors, floor=0.5
+midpoint): answer only if output-consistent AND internal state doesn't flag confabulation; clear nonsense
+(knows < 0.3) abstains immediately. VALIDATED: 'flarn of a quix' -> 'I'm not sure I reliably know this' (was a
+confident confabulation); 'capital of France' -> Paris; arithmetic -> calc; uncertain -> abstains. The gate
+fixes WHEN it speaks. What it does NOT fix: generation QUALITY (self-corpus bleed, rambling, 'Hi'->WW2) -- that
+is the SFT/training issue (T5.1, prepped). The gate makes it HONEST; the SFT makes it FLUENT.
+
 ## Batch-test command sketch
 ```
 CUDA on, Unreal closed:

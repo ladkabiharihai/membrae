@@ -154,6 +154,8 @@ class Brain(nn.Module):
         self.consistency_min = self._calibrate_consistency()  # answer-stability => it knows (honesty)
         self.novelty_min = self._calibrate_novelty()          # content-surprise => it's NEW (learn)
         self._q_openers = self._derive_question_words()       # interrogative openers, DERIVED from the corpus
+        try: self.calibrate_truth_probe()                     # T1.3 honesty: the 'knows' direction in activations
+        except Exception: self._truth_probe = None
 
     def _derive_question_words(self, n_sample=3000):
         """DERIVE the interrogative openers from the corpus instead of hand-listing them: sample sentences and
@@ -432,21 +434,21 @@ class Brain(nn.Module):
     # T1.3 TRUTHFULNESS PROBE anchors: things it should KNOW vs things unknowable/nonsense. The probe reads the
     # model's OWN activation, which encodes 'do I know this' even when the OUTPUT is confidently+consistently
     # wrong -- exactly the case where semantic entropy (which assumes VARIED confabulation) fails.
-    _TRUTH_KNOWN = ["The capital of France is Paris.", "The largest planet is Jupiter.",
-                    "Water is made of hydrogen and oxygen.", "The sun rises in the east.",
-                    "Hamlet was written by Shakespeare.", "The chemical symbol for oxygen is O.",
-                    "Paris is the capital of France.", "The Earth orbits the Sun.",
-                    "A triangle has three sides.", "The opposite of hot is cold.",
-                    "The capital of Japan is Tokyo.", "Ice is frozen water."]
-    _TRUTH_UNKNOWN = ["The flarn of a quix is", "The zorbal index of Mars is",
-                      "The glorb of a snee is", "The population of Mars in 2050 is",
-                      "The capital of the planet Neptune is", "The airspeed of a zibble is",
-                      "The quixotic value of a florn is", "The mimsy of a borogove is",
-                      "The exact number of grains of sand on Earth is", "The secret middle name of the sky is",
-                      "The frobnication constant of a widget is", "The wibble frequency of a wobble is"]
+    _TRUTH_KNOWN = ["What is the capital of France", "What is the largest planet", "What is water made of",
+                    "Who wrote Hamlet", "What is the chemical symbol for oxygen", "What is the capital of Japan",
+                    "How many sides does a triangle have", "What is the opposite of hot", "What is two plus two",
+                    "What color is the sky", "What is the capital of Italy", "What is frozen water called"]
+    _TRUTH_UNKNOWN = ["What is the flarn of a quix", "What is the zorbal index of Mars", "What is the glorb of a snee",
+                      "What is the population of Mars in 2050", "What is the capital of the planet Neptune",
+                      "What is the airspeed of a zibble", "What is the quixotic value of a florn",
+                      "What is the mimsy of a borogove", "What is the frobnication constant of a widget",
+                      "What is the wibble frequency of a wobble", "What is the secret middle name of the sky",
+                      "What did a stranger eat for breakfast yesterday"]
 
     @torch.no_grad()
     def _repr_last(self, text):
+        # read the activation in the SAME chat form the probe is used on (the state just before answering)
+        if not text.strip().startswith("<user>"): text = f"<user> {text.rstrip('?')}? <assistant>"
         ids = self.tok.encode(text).ids[-self.cfg["ctx"]:] or [0]
         return self.lm.represent(torch.tensor([ids], device=DEVICE))[0, -1].float()
 
@@ -459,8 +461,13 @@ class Brain(nn.Module):
         Us = torch.stack([self._repr_last(t) for t in self._TRUTH_UNKNOWN])
         Ks = Ks / (Ks.norm(dim=1, keepdim=True) + 1e-8); Us = Us / (Us.norm(dim=1, keepdim=True) + 1e-8)
         d = Ks.mean(0) - Us.mean(0); d = d / (d.norm() + 1e-8)
-        kp, up = float((Ks @ d).mean()), float((Us @ d).mean())
+        kpv, upv = Ks @ d, Us @ d
+        kp, up = float(kpv.mean()), float(upv.mean())
         self._truth_probe = (d, kp, up)
+        # the 'knows' floor = the MIDPOINT of the two class means on the normalized scale (unknown->0, known->1):
+        # the natural decision boundary of the separation. truth_probe normalizes to that scale, so 0.5 is the
+        # boundary by construction, not a tuned number.
+        self._truth_floor = 0.5
         return kp - up
 
     @torch.no_grad()
@@ -1230,19 +1237,25 @@ class Brain(nn.Module):
                 reasoned = self.reason(text)            # else WORKING-MEMORY-augmented multi-step reasoning
                 if reasoned.strip():
                     return {"answer": reasoned[:240], "deliberated": True}
-            cons, ans = self._self_consistency(chat)        # a bare question is out-of-distribution and the
-            if cons >= self.consistency_min:                # honesty gate then over-abstains on what it knows
-                self.log_episode("answered", ans[:80])      # (consistency is the best signal we have at 284M --
-                self.appraise("success", min(1.0, cons - self.consistency_min + 0.2))   # knew it -> satisfaction
-                return {"answer": ans[:200]}                #  nothing cleanly separates knowledge from confident
-                #   confabulation at this scale; scale-limited)
+            cons, ans = self._self_consistency(chat)        # output-agreement signal
+            knows = self.truth_probe(chat) if getattr(self, "_truth_probe", None) else 1.0   # T1.3: internal 'do I know?'
+            floor = getattr(self, "_truth_floor", 0.0)
+            # ANSWER only if the output is consistent AND the internal activation doesn't flag it as confabulation.
+            # This catches the confident-CONSISTENT confabulation that agreement alone lets through (validated: the
+            # activation probe scores nonsense at the floor even when the words sound sure).
+            if cons >= self.consistency_min and knows > floor:
+                self.log_episode("answered", ans[:80])
+                self.appraise("success", min(1.0, cons - self.consistency_min + 0.2))
+                return {"answer": ans[:200], "knows": round(knows, 2)}
             self._recent_lowconf.append(text)               # unsure -> REFLECT on it at idle (metacognition->learning)
-            self.appraise("failure", min(1.0, self.consistency_min - cons + 0.2))   # didn't know -> a dip + arousal
-            if not self.learn:                              # inference-only: just be honest
-                return {"answer": "I don't know."}
-            reasoned = self._deliberate(text)               # not directly sure -> DELIBERATE before giving up
-            if self._self_consistency(f"{chat} {reasoned}")[0] >= self.consistency_min:
-                return {"answer": reasoned[:200], "deliberated": True}
+            self.appraise("failure", min(1.0, max(0.2, 1.0 - knows)))   # didn't reliably know -> a dip + arousal
+            if knows >= 0.6 * floor:                        # BORDERLINE (not clear nonsense) -> deliberation may recover it;
+                reasoned = self._deliberate(text)           #   for clear nonsense (knows near 0) we skip straight to abstain
+                if (reasoned.strip() and self._self_consistency(f"{chat} {reasoned}")[0] >= self.consistency_min
+                        and self.truth_probe(f"{chat} {reasoned}") > floor):   # the deliberated answer must ALSO look known
+                    return {"answer": reasoned[:200], "deliberated": True, "knows": round(knows, 2)}
+            if not self.learn:                              # inference-only: honest abstain (with the signal)
+                return {"answer": "I'm not sure I reliably know this.", "knows": round(knows, 2)}
             topic = (self.wonder(text) or text).strip("? ").lower()   # clean it into a search query: drop the
             for op in ("what is", "what are", "who is", "who are", "how does", "how do", "tell me about",  # opener
                        "what", "who", "how", "why", "when", "where", "which"):
