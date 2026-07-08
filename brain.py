@@ -646,6 +646,17 @@ class Brain(nn.Module):
             return before, G.n_params(self.lm)
         return None
 
+    def growth_policy_features(self):
+        """T5.3: the decision FEATURES a LEARNED growth policy would use, instead of the fixed 'learn_fails >= 3'
+        trigger -- recent learn-failure count, the familiarity boundary, capacity, and recent low-confidence
+        rate. A policy trained on logged growth OUTCOMES (did growing actually lower val loss?) would map these
+        to grow/wait, i.e. learning to learn. Scaffold: exposes the features; the learned mapping needs logged
+        growth episodes to train on (H100)."""
+        return {"learn_fails": getattr(self, "_learn_fails", 0),
+                "abstain_threshold": round(self.abstain_threshold, 3),
+                "params_M": round(self.n_params() / 1e6),
+                "recent_lowconf": len(getattr(self, "_recent_lowconf", []))}
+
     # ================= THINK: respond to a statement (and learn if it's new) =======
     def think(self, observation, answer_fn=None):
         """Respond to something said to it -- it ALWAYS replies. If what was said is
@@ -818,6 +829,14 @@ class Brain(nn.Module):
         if brief: return f"I am {sm['name']}, {sm['kind']}."
         return (f"I am {sm['name']}, {sm['kind']}. {sm['core'][0].upper()+sm['core'][1:]}. I can "
                 f"{sm['faculties']}. Honestly: {self._honest_limits()}. I value {sm['values']}.")
+
+    @torch.no_grad()
+    def self_embedding(self):
+        """T2.4: the 'self' as a d-VECTOR (mean embedding of the derived self-description), so identity is a
+        representation the model can attend to / condition on, not just a dict lookup. Derived now; a LEARNED
+        self-token (trained so the model actively conditions on it, like the workspace injection) is the full
+        version and needs a short training pass (H100)."""
+        return self._embed(self.self_description(brief=False))
 
     def self_report(self, text, intent=None):
         """Answer a self-referential question from the DERIVED self-model + measured state, dispatched by the
@@ -1309,6 +1328,19 @@ class Brain(nn.Module):
         sims = [(float(q @ key), text) for text, key in self.store]
         best_sim, best_text = max(sims, key=lambda s: s[0])
         return best_text if best_sim >= self.match_threshold else None
+
+    @torch.no_grad()
+    def recall_inweights(self, query):
+        """T2.3: recall via the IN-WEIGHTS fast-weight memory as a forward-pass associative read -- network
+        computation, not a Python list scan. The FastWeightMemory (surprise-written, decaying, sleep-consolidated)
+        is the PRIMARY store; self.store is a semantic-index mirror for provenance/fallback. Returns the token the
+        subconscious most associates with the query, or the semantic-index fallback when nothing is written."""
+        if float(self.mem.energy()) <= 0:
+            return self._retrieve(query)
+        ids = self.tok.encode(query).ids[-self.cfg["ctx"]:] or [0]
+        r = self.lm.represent(torch.tensor([ids], device=DEVICE))[0, -1].float()
+        logits = self.lm.head(self.mem.read(r).to(self.lm.head.weight.dtype))
+        return self.tok.decode([int(logits.argmax(-1))])
 
     # ================= WIRED: ask (abstain + seek + answer) =================
     def ask(self, q, verbose=True):
