@@ -23,6 +23,20 @@ with the 1B (learn=False on GPU) when the GPU frees up.
 | T2.2 | `goal_vector()` in brain.py | goal as a d-vector for conditioning (pooled into workspace already); check it returns for an active goal. |
 | T2.6 | `background_tick()` in brain.py | call repeatedly (learn=True) -> ongoing thought writing to workspace/memory/affect; check mood/topic evolve across ticks. |
 
+
+
+## BATCH-TEST RESULTS (GPU freed)
+- T1.1 semantic entropy: **FAILS fundamentally** -- the small model confabulates CONSISTENTLY (same made-up
+  answer every sample -> low entropy), so entropy detects uncertainty, not confident-consistent-confabulation.
+  Kept as a documented negative result; the real calibration path is grounding (T1.4) + activations (T1.3).
+- T1.4 grounding verification: **WORKS** (Paris/Jupiter supported=True; London/Mars supported=False) after the
+  entity-level check. The calibration signal that works for lookupable facts.
+- T1.2 rephrasing: weak (0.68 vs 0.65). T2.5 latent_think: pondering surfaces the answer ('Paris') but decode
+  is weak even with rep-penalty. T2.6 monologue, T2.2 goal-vec, T3.3 router: PASS. T2.1 injection: garbage on
+  the frozen model (as flagged -- needs prefix-tuning).
+- NEXT: T1.3 activation probe -- does the internal state encode correctness even when the output is
+  confidently-consistently wrong? The most promising path given the T1.1 finding.
+
 ## Batch-test command sketch
 ```
 CUDA on, Unreal closed:

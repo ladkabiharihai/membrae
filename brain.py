@@ -392,23 +392,29 @@ class Brain(nn.Module):
 
     @torch.no_grad()
     def _semantic_entropy(self, question, k=6, n=24):
-        """SEMANTIC ENTROPY honesty signal (stronger than token agreement, per Kuhn/Farquhar): sample k answers,
-        cluster them by MEANING using the brain's own contextual embedding + its data-calibrated match bar, and
-        measure entropy over the meaning-clusters. Real knowledge -> every sample means the same thing -> ~1
-        cluster -> ~0 entropy. Confident confabulation -> fluent but DIFFERENT meanings each sample -> many
-        clusters -> high entropy. This catches what token-agreement misses (a model confidently WRONG in varied
-        ways). Returns (entropy_norm in [0,1], representative answer from the dominant meaning). Frozen model."""
-        texts = [self.tok.decode(self._generate_sampled(question, n)).strip() for _ in range(k)]
-        embs = [self._embed(t if t else " ") for t in texts]
-        clusters = []                                    # greedy agglomerate: join if within the calibrated bar
-        for i, e in enumerate(embs):
+        """SEMANTIC ENTROPY honesty signal (Kuhn/Farquhar-style): sample k answers, reduce each to its ANSWER
+        (its peak-content token, excluding the question's own words), cluster the answers by token-embedding
+        synonymy, and measure entropy over the clusters. Real knowledge -> the SAME answer every sample -> ~1
+        cluster -> ~0 entropy. Confident confabulation -> a different answer each sample -> high entropy. Reducing
+        to the answer TOKEN (not the whole fluent sentence) is what makes 'Paris' == 'the capital is Paris' and
+        stops known-answer paraphrases from splitting into separate clusters (the v1 bug). Returns (entropy_norm
+        in [0,1], representative answer)."""
+        qset = set(self.tok.encode(question).ids)
+        ans = []                                          # each sample's answer = its most-informative token
+        for _ in range(k):
+            s = self._generate_sampled(question, n)
+            content = [(self._tw[t].item(), t) for t in s if t not in qset and self._tw[t].item() >= self._content_min]
+            if content: ans.append(max(content)[1])
+        if len(ans) < 2: return 1.0, self.tok.decode(ans[:1] or [0])
+        clusters = []                                     # cluster answer tokens: identical merge, synonyms merge
+        for t in ans:
+            e = self.lm.emb.weight[t].float(); e = e / (e.norm() + 1e-8)
             hit = next((c for c in clusters if float(e @ c[0]) >= self.match_threshold), None)
-            if hit: hit[1].append(i)
-            else: clusters.append([e, [i]])
-        p = [len(c[1]) / len(embs) for c in clusters]
-        Hn = -sum(pi * math.log(pi + 1e-9) for pi in p) / (math.log(len(embs)) + 1e-9)   # 0=certain, 1=scattered
-        big = max(clusters, key=lambda c: len(c[1]))
-        return Hn, texts[big[1][0]]
+            if hit: hit[1].append(t)
+            else: clusters.append([e, [t]])
+        p = [len(c[1]) / len(ans) for c in clusters]
+        Hn = -sum(pi * math.log(pi + 1e-9) for pi in p) / (math.log(len(ans)) + 1e-9)   # 0=certain, 1=scattered
+        return Hn, self.tok.decode([max(clusters, key=lambda c: len(c[1]))[1][0]])
 
     _REPHRASE = ("{q}?", "Tell me: {q}?", "I want to know: {q}?", "Please answer: {q}?", "In short, {q}?")
     @torch.no_grad()
@@ -657,7 +663,9 @@ class Brain(nn.Module):
             h = torch.cat([h, soft.to(dt)[:, None, :]], dim=1)[:, -self.cfg["ctx"]:, :]
         out = []                                          # then speak, conditioned on the latent thought
         for _ in range(answer_n):
-            nx = int(self.lm.forward_embeds(h)[0, -1].float().argmax(-1))
+            lg = self.lm.forward_embeds(h)[0, -1].float()
+            for t in set(out[-20:]): lg[t] /= 1.3         # anti-loop repetition penalty
+            nx = int(lg.argmax(-1))
             if nx == 0: break
             out.append(nx)
             h = torch.cat([h, self.lm.emb(torch.tensor([[nx]], device=DEVICE))], dim=1)[:, -self.cfg["ctx"]:, :]
@@ -946,8 +954,13 @@ class Brain(nn.Module):
         the strongest confidence signal when a lookupable source exists."""
         src = self.search(query or answer, deep=True)
         if not src: return None, None                    # nothing to check against -> abstain on grounding
-        sim = float(self._embed(answer) @ self._embed(src[:400]))
-        return (sim >= self.match_threshold), (self._last_source or src[:80])
+        sset = set(self.tok.encode(src.lower()).ids)
+        qset = set(self.tok.encode((query or "").lower()).ids)   # exclude the query's own words
+        content = [(self._tw[t].item(), t) for t in self.tok.encode(answer.lower()).ids
+                   if t not in qset and self._tw[t].item() >= self._content_min]
+        if not content: return None, self._last_source
+        key = max(content)[1]                             # the answer's DISTINCTIVE entity (Paris vs London) must
+        return (key in sset), (self._last_source or src[:80])   # itself appear in the source -- not just context
 
     def broadcast(self, focus):
         """GLOBAL WORKSPACE -- the substrate integration consciousness could EMERGE from (access, NOT experience).
