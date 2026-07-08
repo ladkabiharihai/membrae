@@ -410,6 +410,19 @@ class Brain(nn.Module):
         big = max(clusters, key=lambda c: len(c[1]))
         return Hn, texts[big[1][0]]
 
+    _REPHRASE = ("{q}?", "Tell me: {q}?", "I want to know: {q}?", "Please answer: {q}?", "In short, {q}?")
+    @torch.no_grad()
+    def _rephrasing_stability(self, question):
+        """Rephrasing-invariance honesty signal (T1.2): ask the same question several ways and measure how
+        tightly the ANSWERS cluster in meaning. Real knowledge is rephrasing-stable; confabulation drifts with
+        the wording. Returns stability in [0,1] = mean pairwise answer-embedding similarity. Complements
+        semantic entropy (that varies the sampling seed; this varies the surface form)."""
+        q = question.strip().rstrip("?").strip()
+        ans = [self._embed(self.generate_text(f"<user> {t.format(q=q)} <assistant>", n=20) or " ")
+               for t in self._REPHRASE]
+        sims = [float(ans[i] @ ans[j]) for i in range(len(ans)) for j in range(i + 1, len(ans))]
+        return sum(sims) / len(sims) if sims else 0.0
+
     @torch.no_grad()
     def _calibrate_content_min(self, k=3000):
         """The self-information level above which a token carries real content -- the
@@ -880,6 +893,17 @@ class Brain(nn.Module):
                     f"up was '{topic}', from {src}.")
         return ("Most of what I know comes from my training, so I usually can't cite a source. When I look "
                 "something up, though, I remember exactly where I got it.")
+
+    @torch.no_grad()
+    def verify_against_source(self, answer, query=None):
+        """GROUNDING as calibration (T1.4): check the model's answer against a freshly fetched source. Returns
+        (supported: bool|None, source_url). supported = the answer's MEANING aligns with the retrieved page
+        (embedding overlap clears the calibrated match bar). Turns a bare claim into a grounded/refuted one --
+        the strongest confidence signal when a lookupable source exists."""
+        src = self.search(query or answer, deep=True)
+        if not src: return None, None                    # nothing to check against -> abstain on grounding
+        sim = float(self._embed(answer) @ self._embed(src[:400]))
+        return (sim >= self.match_threshold), (self._last_source or src[:80])
 
     def broadcast(self, focus):
         """GLOBAL WORKSPACE -- the substrate integration consciousness could EMERGE from (access, NOT experience).
