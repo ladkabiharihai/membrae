@@ -391,6 +391,26 @@ class Brain(nn.Module):
         return cnt / k, self.tok.decode(best).strip()
 
     @torch.no_grad()
+    def _semantic_entropy(self, question, k=6, n=24):
+        """SEMANTIC ENTROPY honesty signal (stronger than token agreement, per Kuhn/Farquhar): sample k answers,
+        cluster them by MEANING using the brain's own contextual embedding + its data-calibrated match bar, and
+        measure entropy over the meaning-clusters. Real knowledge -> every sample means the same thing -> ~1
+        cluster -> ~0 entropy. Confident confabulation -> fluent but DIFFERENT meanings each sample -> many
+        clusters -> high entropy. This catches what token-agreement misses (a model confidently WRONG in varied
+        ways). Returns (entropy_norm in [0,1], representative answer from the dominant meaning). Frozen model."""
+        texts = [self.tok.decode(self._generate_sampled(question, n)).strip() for _ in range(k)]
+        embs = [self._embed(t if t else " ") for t in texts]
+        clusters = []                                    # greedy agglomerate: join if within the calibrated bar
+        for i, e in enumerate(embs):
+            hit = next((c for c in clusters if float(e @ c[0]) >= self.match_threshold), None)
+            if hit: hit[1].append(i)
+            else: clusters.append([e, [i]])
+        p = [len(c[1]) / len(embs) for c in clusters]
+        Hn = -sum(pi * math.log(pi + 1e-9) for pi in p) / (math.log(len(embs)) + 1e-9)   # 0=certain, 1=scattered
+        big = max(clusters, key=lambda c: len(c[1]))
+        return Hn, texts[big[1][0]]
+
+    @torch.no_grad()
     def _calibrate_content_min(self, k=3000):
         """The self-information level above which a token carries real content -- the
         median importance of tokens in actual running text (function words sit below,
