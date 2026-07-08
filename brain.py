@@ -686,8 +686,8 @@ class Brain(nn.Module):
                 grew = self._maybe_grow()
                 if grew: tr["grew"] = f"{grew[0]:,} -> {grew[1]:,} params"
             return tr
-        reply = self.generate_text(obs, n=30).strip()        # otherwise: just talk back
-        return {"answer": reply[:160] if reply else "(I'm not sure what to say to that.)"}
+        reply = self.generate_text(f"<user> {obs} <assistant>", n=30).strip()   # reply in the TRAINED chat form
+        return {"answer": reply[:200] if reply else "(I'm not sure what to say to that.)"}
 
     def explore(self):
         """Autonomous curiosity: with no prompt from us, the brain CHASES its own last
@@ -775,8 +775,10 @@ class Brain(nn.Module):
         "_other":         ["what is a black hole", "what are black holes", "what is the capital of france",
                            "what are the planets", "what are the primary colors", "how does an engine work",
                            "who wrote hamlet", "when did the war end", "where is mount everest",
-                           "the sky is blue today", "tell me about photosynthesis", "define gravity",
-                           "explain how rain forms", "what are the symptoms of a cold"],
+                           "the sky is blue today", "tell me about photosynthesis", "tell me about dogs",
+                           "tell me about the weather", "tell me about history", "define gravity",
+                           "explain how rain forms", "what are the symptoms of a cold",
+                           "hi", "hello there", "hey", "good morning", "thanks", "how are you doing"],
     }
 
     def _route_intent(self, text):
