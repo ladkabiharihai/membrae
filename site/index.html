@@ -232,7 +232,7 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
 <section id="faculties"><div class="wrap reveal">
   <div class="tag">What it can do</div>
   <h2>A model plus an adaptive controller</h2>
-  <p class="lead">The spinning model is wrapped by <span class="mono">brain.py</span>  a self-calibrating controller with <b>nothing hardcoded</b>. Everything below is real code, not a roadmap.</p>
+  <p class="lead">The spinning model is wrapped by <span class="mono">brain.py</span>  a self-calibrating controller whose <b>thresholds are all derived</b>. Everything below is real code, not a roadmap.</p>
   <div class="fac-grid">
     <div class="fac"><div class="ic">🌀</div><h4>Reasons in motion</h4><p>Its core token-mixer is the spinning carrier; the computation rides in phase. Ablation confirms it's the load-bearing core, not a memorized lookup.</p><div class="pf">ablation 306× ✓</div></div>
     <div class="fac"><div class="ic">🌱</div><h4>Learns after training</h4><p>Surprise-modulated continual learning with <i>generative replay</i>  it absorbs new facts without catastrophically forgetting the old.</p><div class="pf">generative replay ✓</div></div>
@@ -245,7 +245,7 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
     <div class="fac"><div class="ic">🛠️</div><h4>Uses tools, learns the result</h4><p>An agency loop: it picks a tool by need  exact arithmetic, memory, web search  runs it, observes the result, and <i>learns</i> the outcome (23+45 → 68, not a guess).</p><div class="pf">act→observe→learn ✓</div></div>
     <div class="fac"><div class="ic">👥</div><h4>Models you</h4><p>A theory-of-mind user model: it tracks what <i>you</i> told and asked, kept distinct from world-fact  so "what did I tell you?" is answered from your mind, not its own.</p><div class="pf">other-minds ✓</div></div>
     <div class="fac"><div class="ic">🔎</div><h4>Reflects to learn</h4><p>What it was unsure of becomes a gap it turns into a self-goal at idle  metacognition wired to learning: being unsure now drives study later.</p><div class="pf">unsure → self-goal ✓</div></div>
-    <div class="fac"><div class="ic">🎛️</div><h4>Nothing hardcoded</h4><p>Word weights = self-information (−log p); thresholds at the equal-error-rate crossover; LR by Smith range-test; the growth bar from the data budget.</p><div class="pf">all self-derived ✓</div></div>
+    <div class="fac"><div class="ic">🎛️</div><h4>No hand-set thresholds</h4><p>Word weights = self-information (−log p); thresholds at the equal-error-rate crossover; LR by Smith range-test; the growth bar from the data budget.</p><div class="pf">all self-derived ✓</div></div>
     <div class="fac"><div class="ic">🙏</div><h4>Honesty gate (partial)</h4><p>Abstains on the clearly-unknowable  but at 284M it does <i>not</i> yet separate known facts from confident confabulation. An honest work-in-progress, not solved.</p><div class="pf">scale-limited ⚠</div></div>
   </div>
 </div></section>
@@ -450,7 +450,7 @@ footer{border-top:1px solid var(--line);padding:40px 0;color:var(--dim);font-siz
   <a class="big" href="compare.html">See Pragnosia vs. today's LLMs →</a>
 </div>
 
-<footer>Pragnosia  a spinning brain. Built and documented in full: every mechanism causal, every number checkable, nothing hardcoded.</footer>
+<footer>Pragnosia  a spinning brain. Built and documented in full: every mechanism causal, every number checkable, no calibration hand-set.</footer>
 
 <script>
 /* ---------- scroll reveal ---------- */
