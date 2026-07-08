@@ -20,6 +20,9 @@ with the 1B (learn=False on GPU) when the GPU frees up.
 | T3.3 | `_mine_corpus_questions()` wired into `_route_intent` | re-run router probe across checkpoints; _other now auto-mines real corpus questions (should stop the per-checkpoint misroutes). |
 | T5.1 | `prepare_sft.py` (GPU-free tokenize) | run -> data/sft.bin; then the low-LR SFT recipe on H100 (in the file). Fixes 'Hi -> WW2 text'. |
 
+| T2.2 | `goal_vector()` in brain.py | goal as a d-vector for conditioning (pooled into workspace already); check it returns for an active goal. |
+| T2.6 | `background_tick()` in brain.py | call repeatedly (learn=True) -> ongoing thought writing to workspace/memory/affect; check mood/topic evolve across ticks. |
+
 ## Batch-test command sketch
 ```
 CUDA on, Unreal closed:

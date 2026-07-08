@@ -996,6 +996,14 @@ class Brain(nn.Module):
         return v / (v.norm() + 1e-8)
 
     @torch.no_grad()
+    def goal_vector(self):
+        """T2.2: the active goal as a d-vector for goal-CONDITIONED generation (injected like the workspace), so
+        the goal SHAPES the forward pass instead of being a list the controller iterates. The workspace vector
+        already pools this in; this exposes it alone for goal-only conditioning."""
+        g = next((x["text"] for x in self.goals if not x["done"]), None)
+        return self._embed(g) if g else None
+
+    @torch.no_grad()
     def generate_with_workspace(self, prompt, n=30, inject=True):
         """T2.1: generate with the workspace vector PREPENDED as a soft token, so the attended state conditions
         the forward pass (functional integration, not cosmetic). inject=False = the ablation that measures its
@@ -1096,6 +1104,22 @@ class Brain(nn.Module):
             monologue.append(entry)
             if stuck and not nxt: break
         return monologue
+
+    def background_tick(self):
+        """T2.6: one step of continuous, always-on inner life. Think a little, let the thought become the
+        attended workspace state, write it to episodic memory if novel, wonder the next topic, and let it stir
+        affect. Called repeatedly in an idle loop (between turns), it gives an ONGOING mental state that persists
+        across turns -- closer to a stream than the invoked-only think_aloud. Returns the tick's trace."""
+        seed = self._last_topic or (self.workspace.get("focus") if self.workspace else None) or "the world"
+        thought = self._deliberate(f"Briefly, {seed}:")[:120]
+        self.broadcast(thought)                          # the thought becomes the attended state (workspace)
+        nov = self._novelty(thought)
+        if self.learn and nov > self.novelty_min:
+            self._remember(thought, min(1.0, nov))       # a novel thought is written to episodic memory
+        nxt = self.wonder(thought)
+        if nxt: self._last_topic = nxt
+        self.appraise("novelty", min(1.0, nov))          # thinking stirs mild arousal
+        return {"thought": thought, "next": nxt, "mood": self.feel()[0]}
 
     def interact(self, text):
         """The brain's ONE way of engaging with anything you say -- this IS the living
