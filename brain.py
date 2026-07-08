@@ -84,7 +84,7 @@ class Brain(nn.Module):
         self._last_source = None
         self.workspace = {}        # GLOBAL WORKSPACE: the currently-attended content, broadcast to all faculties
         self.perception = None     # MULTIMODAL adapter (built on first perceive; LM stays frozen), trained later
-        self._intent_emb = None    # cache of intent-prototype embeddings for the DERIVED semantic router
+        self._intent_proto = None  # intent centroids + derived accept thresholds for the semantic router
         self.mem = H.FastWeightMemory(self.lm.d).to(DEVICE)   # IN-WEIGHTS subconscious: surprise-write,
                                                               # additive recall, decay (forget), sleep-consolidate
         # Everything below is DERIVED from the data/model, never hand-set, and is
@@ -769,39 +769,34 @@ class Brain(nn.Module):
         "provenance":     ["how do you know that", "where did you learn that", "what is your source"],
         "workspace":      ["what are you thinking about", "what is on your mind", "what are you focused on",
                            "what's going through your head"],
-        # the OTHER anchor: normal questions/statements. If the input is closest to these, it's NOT a meta-question
-        # -> route to None and handle it normally. This lets the model's OWN similarity separate meta from normal,
-        # instead of a hand-tuned confidence cutoff.
-        "_other":         ["what is a black hole", "what are black holes", "what is the capital of france",
-                           "what are the planets", "what are the primary colors", "how does an engine work",
-                           "who wrote hamlet", "when did the war end", "where is mount everest",
-                           "the sky is blue today", "tell me about photosynthesis", "tell me about dogs",
-                           "tell me about the weather", "tell me about history", "define gravity",
-                           "explain how rain forms", "what are the symptoms of a cold",
-                           "hi", "hello there", "hey", "good morning", "thanks", "how are you doing",
-                           # persona questions the LM now answers itself (identity baked into the weights) -> None -> LM
-                           "who are you", "what are you", "your name", "tell me about yourself",
-                           "describe yourself", "how do you work", "how do you think", "what can you do",
-                           "what are you good at", "what are you capable of", "what do you value",
-                           "what matters to you", "how were you made"],
     }
 
+    # NEGATIVES: what should go to the LM, not the controller. A handful of persona/greeting seeds define the
+    # persona side; the rest of the '_other' class is AUTO-MINED from the corpus, so the boundary tracks the real
+    # question distribution instead of a hand-tuned list. Routing needs both sides to know where the line is.
+    _OTHER_SEED = ["who are you", "what are you", "what can you do", "how do you work", "what do you value",
+                   "describe yourself", "tell me about yourself", "hello there", "thanks",
+                   "what is a black hole", "tell me about dogs", "who wrote hamlet"]
+
+    def _fit_intent_router(self):
+        """Fit the router: embed the seed examples of each intent PLUS an '_other' class (persona/greeting seeds +
+        auto-mined corpus questions = what the LM should answer). Routing (below) is nearest-example: an input
+        whose nearest seed is an '_other' one routes to None -> the LM. The decision is the model's OWN embedding
+        similarity; the only data are a few seed examples per side, re-embedded as the model changes."""
+        self._intent_seeds = {intent: [self._embed(s) for s in seeds] for intent, seeds in self._INTENTS.items()}
+        self._intent_seeds["_other"] = [self._embed(s) for s in self._OTHER_SEED + self._mine_corpus_questions(30)]
+
     def _route_intent(self, text):
-        """DERIVED routing: which intent (if any) the input is -- by the model's OWN embedding similarity to the
-        seed phrasings, gated by its data-calibrated match bar. No keyword lists; generalizes to paraphrases."""
+        """Route by the model's OWN semantics: the class of the NEAREST seed example (intents vs '_other'). Nearest
+        to an '_other' example -> None -> the LM. No keyword lists, no hand-set threshold, no per-misroute tuning."""
         if not text or not str(text).strip(): return None
-        if self._intent_emb is None:                     # embed the seed phrasings ONCE, then cache
-            self._intent_emb = {k: [self._embed(p) for p in v] for k, v in self._INTENTS.items()}
-            for qm in self._mine_corpus_questions(12):   # T3.3: data-derived _other anchors (real questions from
-                self._intent_emb["_other"].append(self._embed(qm))   # the corpus) -> meta-vs-normal boundary tracks
-            #   the ACTUAL question distribution and auto-refreshes per checkpoint (fixes hand-tuned _other fragility)
+        if getattr(self, "_intent_seeds", None) is None: self._fit_intent_router()
         q = self._embed(text)
-        best, best_sim = None, -1.0
-        for intent, embs in self._intent_emb.items():
-            sim = max(float(q @ e) for e in embs)
-            if sim > best_sim: best, best_sim = intent, sim
-        # a meta-intent only if the input is closest to it (not to the OTHER anchor) AND clears the data bar
-        return best if (best and best != "_other" and best_sim >= self.match_threshold) else None
+        best, bs = None, -1.0
+        for intent, embs in self._intent_seeds.items():
+            s = max(float(q @ e) for e in embs)          # similarity to the nearest seed of this class
+            if s > bs: best, bs = intent, s
+        return None if (best is None or best == "_other") else best
 
     def _mine_corpus_questions(self, n=12):
         """T3.3: sample real questions from the corpus (sentences ending in '?') as _other anchors, so the
