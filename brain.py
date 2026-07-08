@@ -79,6 +79,7 @@ class Brain(nn.Module):
         self._recent_lowconf = []  # questions it was unsure on -> reflected into gaps/goals at idle
         self._turn = 0             # monotonic step counter -> orders episodes (no wall-clock needed)
         self.affect = {"valence": 0.0, "arousal": 0.0, "mood": 0.0}   # FUNCTIONAL EMOTION: derived affect state
+        self.mood_decay, self.valence_decay = 0.95, 0.8   # affect time-constants (re-derived in recalibrate, T4.1)
         self.provenance = {}       # GROUNDING: topic -> source URL it learned the fact from ('how do you know?')
         self._last_source = None
         self.workspace = {}        # GLOBAL WORKSPACE: the currently-attended content, broadcast to all faculties
@@ -156,6 +157,8 @@ class Brain(nn.Module):
         self._q_openers = self._derive_question_words()       # interrogative openers, DERIVED from the corpus
         try: self.calibrate_truth_probe()                     # T1.3 honesty: the 'knows' direction in activations
         except Exception: self._truth_probe = None
+        try: self.mood_decay, self.valence_decay = self._calibrate_affect_timescale()   # T4.1 derived affect constants
+        except Exception: pass
 
     def _derive_question_words(self, n_sample=3000):
         """DERIVE the interrogative openers from the corpus instead of hand-listing them: sample sentences and
@@ -180,6 +183,22 @@ class Brain(nn.Module):
         base = sum(q.values()) / max(1, sum(tot.values()))          # corpus baseline P(question)
         openers = {w for w, c in tot.items() if c >= 3 and q[w] / c >= 1.5 * base}   # enriched for questions
         return openers or {"what", "who", "how", "why", "when", "where"}   # fallback if corpus too sparse
+
+    @torch.no_grad()
+    def _calibrate_affect_timescale(self):
+        """T4.1: DERIVE the affect time-constants from the AUTOCORRELATION of the model's OWN surprise signal --
+        how long surprise persists in the sequence sets how long mood should persist. Replaces the hand-set EMA
+        coefficients (0.95/0.8). More persistent surprise -> slower-moving mood."""
+        if not os.path.exists(f"data/{CFG['valid_bin']}.bin"): return 0.95, 0.8
+        vd = H.load(CFG["valid_bin"]); g = torch.Generator().manual_seed(7)
+        i = int(torch.randint(0, vd.size(0) - 256, (1,), generator=g))
+        ids = vd[i:i + 256].long().to(DEVICE)
+        logits = self.lm(ids.unsqueeze(0))[0, :-1]
+        s = F.cross_entropy(logits, ids[1:], reduction="none").float()
+        s = s - s.mean()
+        ac1 = float((s[:-1] * s[1:]).sum() / (s.pow(2).sum() + 1e-8))   # lag-1 autocorrelation of surprise
+        ac1 = max(0.0, min(1.0, ac1))
+        return min(0.99, 0.85 + 0.14 * ac1), min(0.9, 0.55 + 0.3 * ac1)   # (mood_decay slow, valence_decay fast)
 
     # ================= NEUROGENESIS: grow capacity on demand =================
     def grow(self, mode="depth", **kw):
@@ -962,10 +981,10 @@ class Brain(nn.Module):
         sign = {"success": 1, "learned": 1, "progress": 1, "failure": -1, "stuck": -1, "novelty": 0}.get(kind, 0)
         s = max(0.0, min(1.0, float(strength)))
         a = self.affect
-        a["valence"] = max(-1.0, min(1.0, 0.8 * a["valence"] + sign * s))        # fast, event-driven
+        a["valence"] = max(-1.0, min(1.0, self.valence_decay * a["valence"] + sign * s))   # fast, event-driven (T4.1 derived)
         wake = s if kind in ("novelty", "failure", "stuck") else 0.4 * s          # surprise/threat raise arousal most
         a["arousal"] = max(0.0, min(1.0, 0.7 * a["arousal"] + wake))
-        a["mood"] = 0.95 * a["mood"] + 0.05 * a["valence"]                        # slow: mood outlasts the moment
+        a["mood"] = self.mood_decay * a["mood"] + (1 - self.mood_decay) * a["valence"]   # slow: mood outlasts the moment
         return a
 
     def feel(self):
