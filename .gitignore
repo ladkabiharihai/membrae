@@ -41,3 +41,8 @@ prog_fig_site.svg
 generations/
 eval_registry/
 Pragnosia_manuscript_latex.zip
+Pragnosia_manuscript_ieee.zip
+manuscript_ieee/IEEEtran.cls
+manuscript_ieee/IEEEtran.bst
+manuscript_ieee/main.pdf
+~/bin/tectonic
