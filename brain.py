@@ -698,6 +698,9 @@ class Brain(nn.Module):
         if not text or not str(text).strip(): return None
         if self._intent_emb is None:                     # embed the seed phrasings ONCE, then cache
             self._intent_emb = {k: [self._embed(p) for p in v] for k, v in self._INTENTS.items()}
+            for qm in self._mine_corpus_questions(12):   # T3.3: data-derived _other anchors (real questions from
+                self._intent_emb["_other"].append(self._embed(qm))   # the corpus) -> meta-vs-normal boundary tracks
+            #   the ACTUAL question distribution and auto-refreshes per checkpoint (fixes hand-tuned _other fragility)
         q = self._embed(text)
         best, best_sim = None, -1.0
         for intent, embs in self._intent_emb.items():
@@ -705,6 +708,22 @@ class Brain(nn.Module):
             if sim > best_sim: best, best_sim = intent, sim
         # a meta-intent only if the input is closest to it (not to the OTHER anchor) AND clears the data bar
         return best if (best and best != "_other" and best_sim >= self.match_threshold) else None
+
+    def _mine_corpus_questions(self, n=12):
+        """T3.3: sample real questions from the corpus (sentences ending in '?') as _other anchors, so the
+        meta-vs-normal boundary tracks the ACTUAL question distribution and auto-refreshes per checkpoint --
+        no hand-tuned _other list to break when the model changes."""
+        if self._replay is None:
+            try: self._replay = H.load(CFG["train_bin"])
+            except Exception: return []
+        out, L = [], len(self._replay); step = max(64, L // 4000)
+        for i in range(0, L - 64, step):
+            for sent in re.split(r"(?<=[.?!])\s+", self.tok.decode([int(x) for x in self._replay[i:i + 64]])):
+                s = sent.strip()
+                if s.endswith("?") and 4 <= len(s.split()) <= 15:
+                    out.append(s)
+                    if len(out) >= n: return out
+        return out
 
     def is_self_question(self, text):
         i = self._route_intent(text)                     # now DERIVED, not a keyword scan

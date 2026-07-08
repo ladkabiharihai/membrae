@@ -17,6 +17,9 @@ with the 1B (learn=False on GPU) when the GPU frees up.
 | T1.6 | `faculty_ablate.py` | run it -> tools/calibration/deliberation ON-vs-OFF deltas. Confirms each faculty helps. |
 | T1.7 | (in eval_all.py MULTIHOP) | graded 1/2/3-hop accuracy; run across snapshots for the token curve. |
 
+| T3.3 | `_mine_corpus_questions()` wired into `_route_intent` | re-run router probe across checkpoints; _other now auto-mines real corpus questions (should stop the per-checkpoint misroutes). |
+| T5.1 | `prepare_sft.py` (GPU-free tokenize) | run -> data/sft.bin; then the low-LR SFT recipe on H100 (in the file). Fixes 'Hi -> WW2 text'. |
+
 ## Batch-test command sketch
 ```
 CUDA on, Unreal closed:
