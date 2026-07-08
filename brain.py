@@ -429,6 +429,48 @@ class Brain(nn.Module):
         sims = [float(ans[i] @ ans[j]) for i in range(len(ans)) for j in range(i + 1, len(ans))]
         return sum(sims) / len(sims) if sims else 0.0
 
+    # T1.3 TRUTHFULNESS PROBE anchors: things it should KNOW vs things unknowable/nonsense. The probe reads the
+    # model's OWN activation, which encodes 'do I know this' even when the OUTPUT is confidently+consistently
+    # wrong -- exactly the case where semantic entropy (which assumes VARIED confabulation) fails.
+    _TRUTH_KNOWN = ["The capital of France is Paris.", "The largest planet is Jupiter.",
+                    "Water is made of hydrogen and oxygen.", "The sun rises in the east.",
+                    "Hamlet was written by Shakespeare.", "The chemical symbol for oxygen is O.",
+                    "Paris is the capital of France.", "The Earth orbits the Sun.",
+                    "A triangle has three sides.", "The opposite of hot is cold.",
+                    "The capital of Japan is Tokyo.", "Ice is frozen water."]
+    _TRUTH_UNKNOWN = ["The flarn of a quix is", "The zorbal index of Mars is",
+                      "The glorb of a snee is", "The population of Mars in 2050 is",
+                      "The capital of the planet Neptune is", "The airspeed of a zibble is",
+                      "The quixotic value of a florn is", "The mimsy of a borogove is",
+                      "The exact number of grains of sand on Earth is", "The secret middle name of the sky is",
+                      "The frobnication constant of a widget is", "The wibble frequency of a wobble is"]
+
+    @torch.no_grad()
+    def _repr_last(self, text):
+        ids = self.tok.encode(text).ids[-self.cfg["ctx"]:] or [0]
+        return self.lm.represent(torch.tensor([ids], device=DEVICE))[0, -1].float()
+
+    def calibrate_truth_probe(self):
+        """T1.3: find the 'knows' DIRECTION in activation space = mean(known activations) - mean(unknown), a
+        robust 1-D linear probe (no overfitting on few examples). A question's projection onto it says whether
+        the internal state looks like it knows -- catching confident-consistent confabulation that the output
+        signals miss. Returns the train separation (known_proj - unknown_proj; >0 means the direction exists)."""
+        Ks = torch.stack([self._repr_last(t) for t in self._TRUTH_KNOWN])
+        Us = torch.stack([self._repr_last(t) for t in self._TRUTH_UNKNOWN])
+        Ks = Ks / (Ks.norm(dim=1, keepdim=True) + 1e-8); Us = Us / (Us.norm(dim=1, keepdim=True) + 1e-8)
+        d = Ks.mean(0) - Us.mean(0); d = d / (d.norm() + 1e-8)
+        kp, up = float((Ks @ d).mean()), float((Us @ d).mean())
+        self._truth_probe = (d, kp, up)
+        return kp - up
+
+    @torch.no_grad()
+    def truth_probe(self, question):
+        """Probability the model KNOWS, read from its internal activation (T1.3). 0 = looks unknown, 1 = known."""
+        if getattr(self, "_truth_probe", None) is None: self.calibrate_truth_probe()
+        r = self._repr_last(question); r = r / (r.norm() + 1e-8)
+        d, kp, up = self._truth_probe
+        return max(0.0, min(1.0, (float(r @ d) - up) / (kp - up + 1e-8)))
+
     @torch.no_grad()
     def _calibrate_content_min(self, k=3000):
         """The self-information level above which a token carries real content -- the

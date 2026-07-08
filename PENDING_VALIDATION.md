@@ -34,8 +34,12 @@ with the 1B (learn=False on GPU) when the GPU frees up.
 - T1.2 rephrasing: weak (0.68 vs 0.65). T2.5 latent_think: pondering surfaces the answer ('Paris') but decode
   is weak even with rep-penalty. T2.6 monologue, T2.2 goal-vec, T3.3 router: PASS. T2.1 injection: garbage on
   the frozen model (as flagged -- needs prefix-tuning).
-- NEXT: T1.3 activation probe -- does the internal state encode correctness even when the output is
-  confidently-consistently wrong? The most promising path given the T1.1 finding.
+- T1.3 activation probe: **WORKS** (train sep 1.29; held-out nonsense all 0.0, known mean 0.19). The internal
+  state signals 'unknown' on nonsense even when the OUTPUT confabulates confidently -- catches what semantic
+  entropy missed. Conservative (some known flagged low = safe abstain). THIS is the calibration path.
+- CALIBRATION VERDICT: semantic entropy FAILS (consistent confabulation); grounding (T1.4) WORKS for lookupable
+  facts; activation probe (T1.3) WORKS for internal knows/doesn't-know. Wire T1.3+T1.4 as the honesty gate,
+  retire semantic entropy for this model.
 
 ## Batch-test command sketch
 ```
