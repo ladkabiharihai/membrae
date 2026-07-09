@@ -2,7 +2,7 @@
   "vocab": 16384,
   "d": 768,
   "heads": 12,
-  "layers": 20,
+  "layers": 21,
   "mlp_mult": 9,
   "ctx": 256,
   "carrier": "none",

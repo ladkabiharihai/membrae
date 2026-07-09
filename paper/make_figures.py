@@ -89,6 +89,6 @@ y=np.arange(len(fac))[::-1]
 ax.barh(y,val,color=C2,height=.62,edgecolor="white")
 for yi,v in zip(y,val): ax.text(v+0.01,yi,f"{v:.2f}",va="center",fontsize=8)
 ax.set_yticks(y); ax.set_yticklabels(fac,fontsize=8); ax.set_xlim(0,1.15)
-ax.set_xlabel("measured score   (↓ = lower is better)"); ax.set_title("14/14 proven faculties (single model)",fontsize=11)
+ax.set_xlabel("measured score   (down = lower is better)"); ax.set_title("Retired 302K toy self-test (NOT the live 1B; see RESULTS_MEASURED.md)",fontsize=9)
 plt.savefig("paper/figs/fig_faculties.png"); plt.close()
 print("figures written to paper/figs/")
