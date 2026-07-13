@@ -17,6 +17,17 @@ When SFT reaches ~1 epoch / converges:
 # router negative-specificity stays ~0.83. If so, set pragnosia.json ckpt -> pragnosia_sft.pt.
 ```
 
+## 0b. Re-bake the identity (paper-aligned) into the weights
+The runtime self-model (`brain._derive_self`) is already paper-aligned (spin-dominant / diagonal-complex /
+load-bearing / fast-slow). But the model's GENERATED self-intro still says the old "small recurrent language
+model" because that lives in the WEIGHTS. `pragnosia_self.txt` + `identity_sentences.txt` are updated
+(spin-dominant, fast-slow, load-bearing core; honesty kept). The currently-running SFT does NOT include these
+edits (its corpus was tokenized before). So, on the NEXT bake:
+```
+python3 prepare_sft.py          # re-tokenize -> picks up the updated identity corpora
+# then include it in the next SFT / continued-training run so the paper-aligned persona bakes into the weights
+```
+
 ## 1. THE CRUX (highest value) — matched attention-only transformer @284M
 Turns "the carrier is used" into "spin-dominant WINS". One command; corpus/tokenizer/budget already matched
 (carrier=none, 21 layers = 288.5M, +1.4% of the 284M spin model):

@@ -102,14 +102,21 @@ class Brain(nn.Module):
         ns = sum(1 for b in self.lm.blocks if isinstance(b, H.SpinBlock))
         na = sum(1 for b in self.lm.blocks if isinstance(b, H.Block))
         mode = getattr(self.lm, "carrier_mode", "single")
-        if mode == "spin_dominant" and ns:
-            core = (f"my core token-mixer is a spin carrier in {ns} of {nl} layers, with attention in the "
-                    f"other {na}; I carry state in the phase of a rotating recurrence run as a parallel scan")
+        nc = sum(1 for b in self.lm.blocks if isinstance(b, getattr(H, "CoupledBlock", ())))
+        if mode in ("spin_dominant", "spin_dominant_coupled") and ns:
+            kind = (f"a {self.n_params()/1e6:.0f}M-parameter spin-dominant language model: a transformer/"
+                    f"state-space hybrid whose load-bearing core is a diagonal-complex spin recurrence, not a "
+                    f"plain transformer")
+            core = (f"my core token-mixer is a diagonal-complex spin carrier in {ns} of {nl} layers, with "
+                    f"attention a fast helper in the other {na + nc}; the attention layers are a fast, local "
+                    f"pathway and the spin carrier is the slow pathway that carries context in the phase of a "
+                    f"rotating recurrence run as a parallel scan -- ablation shows the carrier is load-bearing")
         else:
+            kind = f"a {self.n_params()/1e6:.0f}M-parameter recurrent language model"
             core = f"I mix tokens with a {mode} carrier across {nl} layers plus attention"
         return {
             "name": "Pragnosia",                                    # a name is declared, not derivable
-            "kind": f"a {self.n_params()/1e6:.0f}M-parameter recurrent language model",  # read from the model
+            "kind": kind,                                           # read from the model (spin-dominant if so)
             "core": core,                                           # read from the model's block structure
             "faculties": self._wired_faculties(),                   # what the controller actually has wired
             "values": "honesty about what I don't know, curiosity, and clarity",   # a stated aim, not a metric
