@@ -139,6 +139,18 @@ kill the idea. The real test is the full fine-tune where the base co-adapts (H10
 is now exact-identity (gain = 1 at init via `1+tanh`), so that experiment starts precisely at the base and any
 ppl change is purely the coupling's doing. Verdict on the coupling: **undecided, pending the H100 fine-tune.**
 
+## 11. MMLU + GSM8K (1B, 18.02 snapshot) — `eval_reasoning.py`
+Reviewer-requested breadth (report, don't omit). Log-likelihood MC for MMLU; greedy generation + exact
+numeric match for GSM8K, on the custom tokenizer.
+
+| Benchmark | Score | n | chance / note |
+|---|---|---|---|
+| MMLU (acc_norm) | 27.9% | 1000 | just above 25% chance |
+| GSM8K (exact numeric) | 1.3% | 150 | greedy gen; multi-step math near zero |
+
+Honest profile of a small model undertrained on a reasoning-heavy custom corpus. Folded into the paper's
+benchmarks section.
+
 ## What these numbers changed
 - **Paper:** ablation multipliers reframed to order-of-magnitude + instability note (C4); T1.8 disclosed in
   a new mechanism subsection and the multi-hop limitation reframed from "just undertrained" to a
