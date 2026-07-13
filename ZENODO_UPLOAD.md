@@ -1,6 +1,6 @@
 # Zenodo upload — Pragnosia paper
 
-**File to upload:** `pragnosia_nature.pdf` (Nature single-column format, line-numbered, all measured numbers).
+**File to upload:** `pragnosia_nature.pdf` (two-column research-paper format, all measured numbers).
 Source: `manuscript_nature/main.tex` (recompile with `~/bin/tectonic main.tex`). The SAME PDF is the NMI
 submission manuscript and the Zenodo preprint (NMI is single-blind, so the named-author PDF is correct for
 both). IEEE format has been dropped per the decision to target Nature Machine Intelligence only.
