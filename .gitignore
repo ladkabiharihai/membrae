@@ -47,3 +47,7 @@ manuscript_ieee/IEEEtran.bst
 manuscript_ieee/main.pdf
 ~/bin/tectonic
 pragnosia_sft_lora.pt
+
+# Title page carries the corresponding author postal address -- keep out of git
+pragnosia_title_page.pdf
+title_page/
