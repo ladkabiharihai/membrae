@@ -93,10 +93,10 @@ class CoupledBlock(nn.Module):
         self.to_slow = nn.Linear(d, d_slow)                       # project the stream into the compact slow space
         self.slow = SpinCarrier(d_slow)                           # compact persistent-context memory (the SLOW pathway)
         self.from_slow = nn.Linear(d_slow, d)                     # slow readout -> per-channel modulation of the fast path
-        nn.init.zeros_(self.from_slow.weight)
-        nn.init.constant_(self.from_slow.bias, 4.0)               # sigmoid(4)~0.98: near-identity at init (warm-start safe)
+        nn.init.zeros_(self.from_slow.weight); nn.init.zeros_(self.from_slow.bias)  # tanh(0)=0 -> gain EXACTLY 1 at init
     def _mod(self, s):
-        return torch.sigmoid(self.from_slow(s))                   # per-channel gain in (0,1) gating the fast pathway
+        return 1.0 + torch.tanh(self.from_slow(s))               # per-channel gain in (0,2), =1 at init (exact-identity
+                                                                 # warm-start); the slow state can amplify OR attenuate
     def forward(self, x):
         s, _ = self.slow(self.to_slow(x))                         # compact slow context (its own gated residual)
         x = x + self._mod(s) * self.attn(self.ln1(x))             # DMP-style: slow state modulates fast attention

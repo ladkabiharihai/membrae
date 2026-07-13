@@ -122,6 +122,23 @@ since exact copy is hard for this small model). This *quantifies* the paper's st
 carry provides gist, not verbatim long-range memory. It is honest breadth evidence NMI expects, and a curve
 the coupling / longer-context training (H100 TODO #3-4) could lift.
 
+## 10. Fast-slow coupling — frozen-base probe (laptop) — `train_coupled_probe.py`
+Cheap test of the DMP-inspired coupling ON TOP OF the 18.02 snapshot: freeze the base, train ONLY the
+coupling params (0.6M) for 1500 steps, compare val ppl to the TRUE base (same measurement).
+
+| | val ppl |
+|---|---|
+| True base (plain spin_dominant) | 19.046 |
+| Coupled, coupling-only trained (frozen base) | 19.005 |
+| **Delta** | **+0.04 (within noise) -> NEUTRAL** |
+
+**Honest reading:** on a FROZEN base the coupling does not help (the naive before/after "delta 4.7" was an
+artifact of a near-identity init recovering its own cost, not real gain -- caught by the true-base control).
+This is a **lower bound**: a frozen base cannot co-adapt to the slow modulation, so neutral here does NOT
+kill the idea. The real test is the full fine-tune where the base co-adapts (H100 TODO #3). The coupling init
+is now exact-identity (gain = 1 at init via `1+tanh`), so that experiment starts precisely at the base and any
+ppl change is purely the coupling's doing. Verdict on the coupling: **undecided, pending the H100 fine-tune.**
+
 ## What these numbers changed
 - **Paper:** ablation multipliers reframed to order-of-magnitude + instability note (C4); T1.8 disclosed in
   a new mechanism subsection and the multi-hop limitation reframed from "just undertrained" to a

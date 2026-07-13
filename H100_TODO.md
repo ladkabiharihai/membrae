@@ -49,6 +49,11 @@ CONFIG=pragnosia_coupled.json python3 train_pragnosia.py --resume --steps 30000
 # WIN: coupled val ppl / multi-hop / long-ctx beats the control at matched steps -> a fast-slow contribution.
 # If no gain, report as a negative result (honest) and keep the parallel design.
 ```
+NOTE (laptop probe already run): a FROZEN-base coupling probe on the 18.02 snapshot was NEUTRAL (19.005 vs
+true base 19.046, +0.04 within noise; eval_registry/coupled_probe.json). That is a lower bound -- a frozen
+base cannot co-adapt to the slow modulation -- so it does not decide the idea; the full fine-tune above is the
+real test. The coupling init is now EXACT identity (gain=1 via 1+tanh), so the fine-tune starts precisely at
+the base and any ppl change is purely the coupling's doing.
 
 ## 4. Long-range evidence (NMI expects it) — re-run on the promoted / crux models
 ```
