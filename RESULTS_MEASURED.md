@@ -110,6 +110,18 @@ Hamlet." is the knowledge-thin core, not an SFT-fixable defect. Baked (non-destr
 `pragnosia_spin_sft.pt`; base untouched; activate by pointing `pragnosia.json` at it. **Fixing the router
 (C2) unblocked shipping the fluency (C7).**
 
+## 9. Long-context needle-in-a-haystack (1B, 18.02 snapshot) — `needle_eval.py`
+Retrieve a one-line fact ("the secret word is X") planted at fractional depth in filler of a target length.
+
+| Context length | 128 | 256 | 512 | 1024 | 2048 |
+|---|---|---|---|---|---|
+| Retrieval acc | 0.47 | 0.13 | 0.13 | 0.07 | 0.07 |
+
+**Honest reading:** retrieval falls off a cliff past the 256-token train window (and is weak even inside it,
+since exact copy is hard for this small model). This *quantifies* the paper's stated limitation — the damped
+carry provides gist, not verbatim long-range memory. It is honest breadth evidence NMI expects, and a curve
+the coupling / longer-context training (H100 TODO #3-4) could lift.
+
 ## What these numbers changed
 - **Paper:** ablation multipliers reframed to order-of-magnitude + instability note (C4); T1.8 disclosed in
   a new mechanism subsection and the multi-hop limitation reframed from "just undertrained" to a

@@ -77,6 +77,37 @@ class SpinBlock(nn.Module):
         x = x + self.mlp(self.ln2(x))
         return x, hs
 
+class CoupledBlock(nn.Module):
+    """FAST-SLOW dual-pathway attention block (DMP-inspired, Sun et al., Nat. Mach. Intell. 2026): a COMPACT
+    diagonal-complex SLOW state (d_slow << d) summarizes recent context and MODULATES the fast attention
+    pathway via a per-channel gain, instead of the carrier merely running in parallel layers. Used in place of
+    the plain attention Block in the 'spin_dominant_coupled' mode. Same attn/mlp/ln parameter names as Block, so
+    an existing spin_dominant checkpoint WARM-STARTS it (load_state_dict strict=False); the coupling params init
+    near identity (gain ~0.98) so the warm-started model starts equal to the base and only diverges as it learns."""
+    def __init__(self, d, n_head, mlp_mult=4, d_slow=None):
+        super().__init__()
+        d_slow = d_slow or max(8, d // 16)                        # compact slow state, d_slow << d
+        self.ln1 = nn.LayerNorm(d); self.attn = CausalSelfAttention(d, n_head)
+        self.ln2 = nn.LayerNorm(d)
+        self.mlp = nn.Sequential(nn.Linear(d, mlp_mult * d), nn.GELU(), nn.Linear(mlp_mult * d, d))
+        self.to_slow = nn.Linear(d, d_slow)                       # project the stream into the compact slow space
+        self.slow = SpinCarrier(d_slow)                           # compact persistent-context memory (the SLOW pathway)
+        self.from_slow = nn.Linear(d_slow, d)                     # slow readout -> per-channel modulation of the fast path
+        nn.init.zeros_(self.from_slow.weight)
+        nn.init.constant_(self.from_slow.bias, 4.0)               # sigmoid(4)~0.98: near-identity at init (warm-start safe)
+    def _mod(self, s):
+        return torch.sigmoid(self.from_slow(s))                   # per-channel gain in (0,1) gating the fast pathway
+    def forward(self, x):
+        s, _ = self.slow(self.to_slow(x))                         # compact slow context (its own gated residual)
+        x = x + self._mod(s) * self.attn(self.ln1(x))             # DMP-style: slow state modulates fast attention
+        x = x + self.mlp(self.ln2(x))
+        return x
+    def forward_state(self, x, h0=None):                          # thread the slow state across windows (long context)
+        s, hs = self.slow(self.to_slow(x), h0)
+        x = x + self._mod(s) * self.attn(self.ln1(x))
+        x = x + self.mlp(self.ln2(x))
+        return x, hs
+
 def _lru_scan(lr, li, br, bi, h0r=None, h0i=None):
     """Hillis-Steele inclusive associative scan (log2 T steps, fully parallel) of the
     diagonal-complex recurrence  h_t = lam (.) h_{t-1} + b_t , in REAL arithmetic (re/im)
@@ -188,6 +219,9 @@ class SpinAttentionLM(nn.Module):
         elif carrier == "real_dominant":                                 # GENERALIZATION control: a DIFFERENT
             self.blocks = nn.ModuleList([Block(d, n_head, mlp_mult) if i % 4 == 3 else RealBlock(d, mlp_mult)
                                          for i in range(n_layer)])        #   (real, no-phase) recurrence as the core
+        elif carrier == "spin_dominant_coupled":                         # FAST-SLOW coupling (DMP-inspired): the every-4th
+            self.blocks = nn.ModuleList([CoupledBlock(d, n_head, mlp_mult) if i % 4 == 3 else SpinBlock(d, mlp_mult)
+                                         for i in range(n_layer)])        #   attention block is modulated by a slow state
         else:
             self.blocks = nn.ModuleList([Block(d, n_head, mlp_mult) for _ in range(n_layer)])
         if carrier == "single":                                          # one carrier after all blocks (default):
@@ -217,7 +251,7 @@ class SpinAttentionLM(nn.Module):
         # generation path: carry the intra-block carrier state across forward calls (windows), so
         # spin_dominant / real_dominant get O(T) cross-window long context. Off in training (state=None,
         # return_state=False) so checkpointing/compile are untouched.
-        thread = (return_state or state is not None) and mode in ("spin_dominant", "real_dominant")
+        thread = (return_state or state is not None) and mode in ("spin_dominant", "real_dominant", "spin_dominant_coupled")
         si = 0
         for i, b in enumerate(self.blocks):                              # -> trains a big model on a small GPU
             if thread and hasattr(b, "forward_state"):                   # SpinBlock/RealBlock -> thread its carrier state

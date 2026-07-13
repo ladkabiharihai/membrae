@@ -1,37 +1,39 @@
-\documentclass[journal]{IEEEtran}
+\documentclass[11pt]{article}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
 \usepackage{graphicx}
 \usepackage{amsmath,amssymb}
 \usepackage{amsthm}
 \newtheorem{proposition}{Proposition}
 \usepackage{booktabs}
 \usepackage{array}
-\usepackage{cite}
+\usepackage[numbers,super,sort&compress]{natbib}
 \usepackage{url}
+\usepackage{setspace}
+\usepackage{lineno}
+\doublespacing
 
 \newcommand{\code}[1]{\texttt{#1}}
 
+\title{Pragnosia: Making a Diagonal-Complex Spin Recurrence the Load-Bearing Core of a Language Model}
+\author{Ashish Kumar\thanks{Independent Researcher. E-mail: ashish99anonymous@gmail.com}}
+\date{July 2026}
+
 \begin{document}
 
-\title{Pragnosia: Making a Diagonal-Complex Spin\\ Recurrence the Load-Bearing Core of a Language Model}
-
-\author{Ashish~Kumar\thanks{A.~Kumar is an independent researcher. E-mail: ashish99anonymous@gmail.com. Preprint, July 2026. Code, checkpoints, and every measured number are released with this record.}}
-
-\markboth{Kumar: Making a Diagonal-Complex Spin Recurrence the Load-Bearing Core of a Language Model}{Kumar: Making a Diagonal-Complex Spin Recurrence the Load-Bearing Core of a Language Model}
-
 \maketitle
+\linenumbers
+
 
 \begin{abstract}
 We study a transformer/state-space hybrid in which a rotational ``spin'' recurrence, a diagonal-complex linear-recurrent unit run as a parallel associative scan, is the \emph{core token-mixer}, with attention only a periodic helper. The work has a sharp, honest arc. We first scaled the hybrid the wrong way: a single spin carrier placed after a transformer stack. Its parameter share collapses $5.76\% \to 1.90\% \to 0.37\%$ from 21M to 1.4B, and at 1.4B a causal probe shows the carrier contributes only 0.028\% of the loss, vestigial as built. A parameter-matched ablation then shows the intended design. With spin as the mixer, validation perplexity is 219 vs 279 for an attention-only baseline at matched parameters, a quality win when spin is the core. A control that swaps the carrier for a real, no-phase recurrence in the same placement also beats attention ($3.5\times$), so at the tested budget the effect is about placement, not phase. Separately, we establish the design's core property at scale as causal attribution. In a 284M spin-dominant model (validation perplexity 24.54 on a 176.6B-token corpus), ablating the spin carrier sends perplexity $25 \to 7716$ ($306\times$), while ablating attention costs only $3.4\times$: the carrier is the load-bearing core, the exact inverse of the 1.4B drift. We keep the two claims distinct: the 284M result shows the carrier is used, not that the design wins; a matched attention-only transformer at 284M is the key experiment still to run. On this substrate runs a proposed self-calibrating controller (mechanisms described; validation preliminary): surprise-modulated continual learning with generative replay, a persistent in-weights episodic memory, an introspection layer, and function-preserving self-growth on probe-confirmed saturation, with no hand-set calibration thresholds. We report the limits plainly: the spin-dominant win is small-scale and single-seed, the grown models are undertrained, and the honesty signal does not yet separate knowledge from confabulation at 284M.
 \end{abstract}
 
-\begin{IEEEkeywords}
-State-space models, linear recurrence, sequence modeling, language models, causal ablation, continual learning.
-\end{IEEEkeywords}
+\noindent\textbf{Keywords:} State-space models, linear recurrence, sequence modeling, language models, causal ablation, continual learning.
 
 \section{Introduction}
-\IEEEPARstart{T}{he} dominant paradigm in AI is the large language model: a transformer~\cite{vaswani2017} trained to predict the next token. Language models are capable but, relative to the goal of an adaptive, persistent learner, three properties are missing by construction. They are \emph{frozen}: once pretraining ends they cannot acquire a fact without fine-tuning or prompt-stuffing, and naive updates cause catastrophic forgetting~\cite{mccloskey1989}. They are \emph{over-confident}: lacking a model of their own uncertainty, they fabricate rather than abstain. And their computation is opaque: there is no standard intervention separating in-state computation from memorized retrieval.
+The dominant paradigm in AI is the large language model: a transformer~\cite{vaswani2017} trained to predict the next token. Language models are capable but, relative to the goal of an adaptive, persistent learner, three properties are missing by construction. They are \emph{frozen}: once pretraining ends they cannot acquire a fact without fine-tuning or prompt-stuffing, and naive updates cause catastrophic forgetting~\cite{mccloskey1989}. They are \emph{over-confident}: lacking a model of their own uncertainty, they fabricate rather than abstain. And their computation is opaque: there is no standard intervention separating in-state computation from memorized retrieval.
 
 As recurrence returns alongside attention~\cite{tiezzi2025recurrent}, a prior question precedes any architecture race: in a hybrid, which computation is actually load-bearing, and how would we know? Pragnosia answers this causally, and builds the missing properties above into the substrate itself, even at small scale. Its contributions are: (i) a diagonal-complex rotational recurrence used as the \emph{core token-mixer} via a parallel scan (Section~\ref{sec:carrier}); (ii) a measured analysis of \emph{where that carrier earns its parameters}: our first scaled model drifted to attention-dominant with a causally-negligible carrier, while a parameter-matched ablation shows the intended \emph{spin-dominant} design wins by about 21\%, is confirmed load-bearing at 284M by ablation, and generalizes to a different (real, no-phase) recurrence in the same placement (Section~\ref{sec:earns}); (iii) a self-calibrating controller with surprise-modulated continual learning, a persistent in-weights episodic memory, an introspection layer, and function-preserving self-growth, with no hand-set constants (Section~\ref{sec:controller}); and (iv) an honest account of what works and what does not (Sections~\ref{sec:experiments}--\ref{sec:limitations}). We release the system and every measured number.
 
@@ -54,6 +56,8 @@ Param-matched abl.\ (37M) & 219 vs 279 & spin-dominant by 21\% \\
 
 \section{Related Work}
 \textbf{Recurrent and state-space sequence models.} The carrier is a diagonal linear recurrence in the lineage of structured state-space models: S4~\cite{gu2022s4}, its diagonal parametrization S4D~\cite{gu2022s4d}, the Linear Recurrent Unit (LRU)~\cite{orvieto2023lru}, and S5; and of recent recurrence-as-mixer models: Mamba~\cite{gu2023mamba}, RWKV~\cite{peng2023rwkv}, RetNet~\cite{sun2023retnet}, and the linear-attention and xLSTM families. Our carrier itself is not novel; it is a standard diagonal-complex LRU~\cite{orvieto2023lru,gu2022s4d} run as a parallel associative scan, and its stability and multi-timescale properties (Section~\ref{sec:properties}) are inherited from that lineage. A recent review frames precisely the question we take up: at the crossroad of transformers and state-space models, how should recurrence and attention combine in future large-model architectures~\cite{tiezzi2025recurrent}? That review surveys the design space; it does not settle whether, in a given hybrid, the recurrence is actually carrying the computation. We contribute the causal test.
+
+\textbf{A fast--slow reading.} This split has a brain-inspired form. Cortical processing, and recent neuromorphic designs, pair a fast local pathway with a slow, low-dimensional state that carries context over long timescales and modulates the fast dynamics~\cite{sun2026dualmemory}. Our architecture is the same decomposition in a language model: the attention blocks are the fast, local pathway, and the diagonal-complex spin carrier is the slow, persistent-context pathway. Read this way, our central question, ``which pathway is load-bearing?'', is the natural test of the fast--slow hypothesis at language-model scale, and our answer, that the slow carrier carries the computation once it is the core, is a statement about where context should live.
 
 \textbf{Where we differ: placement and verification.} These models are typically the sole mixer, or interleaved uniformly with attention. Our question is narrower: in a hybrid, is the recurrence carrying the computation, or is it a vestigial side-channel? We contribute (i) a measured account that a single carrier's contribution collapses with scale when placed after a transformer stack, and (ii) a causal protocol (carried-state intervention on single-carrier models, direct ablation on the spin-dominant design) to test whether the mixer is load-bearing. Our headline ($306\times$ ablation cost vs $3.4\times$ for attention at 284M) is a property of placement, not of the recurrence.
 
@@ -258,7 +262,7 @@ PIQA & accuracy & \textbf{59.5\%} & 50\% \\
 \subsection{Comparison with open models of similar size}
 We ran four open models through the identical harness (Table~\ref{tab:open}). On ARC-Easy our 284M (34.7) matches or beats GPT-2 (34.1) and Cerebras-256M (32.7), trailing only the larger GPT-2-medium; on HellaSwag it edges the similar-size models; ARC-Challenge is at chance for all four. On PIQA and especially LAMBADA our model is clearly behind, as LAMBADA rewards fluent general language modeling, which a reasoning-heavy, undertrained model does least well. We include this not to claim a competitive small model, but to benchmark our numbers honestly. A 565M continuation confirms the trend: it improves on most tasks, and LAMBADA gains most ($19.0\to21.7$), as expected for an undertrained model.
 
-\begin{table*}[t]\centering\small
+\begin{table}[t]\centering\small
 \caption{Zero-shot accuracy (\%) vs open models of similar size, one harness, 1{,}000-example subsamples. Comparable to GPT-2 (124M) and Cerebras-256M, behind the larger GPT-2-medium; ARC-Challenge sits at chance for all four models.}
 \label{tab:open}
 \begin{tabular}{@{}l r r r r r r@{}}
@@ -272,12 +276,12 @@ Cerebras-GPT-256M & 256M & 62.1 & 32.7 & 22.1 & 26.3 & 29.5 \\
 GPT-2-medium & 355M & 66.5 & 37.5 & 23.3 & 36.8 & 42.8 \\
 \bottomrule
 \end{tabular}
-\end{table*}
+\end{table}
 
 \subsection{Progression across grown sizes}
 The grown models come from function-preserving growth followed by continued training. We tabulate every metric across the sizes (Table~\ref{tab:prog}, Fig.~\ref{fig:prog}). Two readings. (i) Growth and training compound cleanly: perplexity falls ($24.5 \to 22.0 \to 21.97 \to 20.1$), and the carrier stays catastrophically load-bearing at every scale: carrier ablation costs two to three orders of magnitude in perplexity while attention ablation stays a mild $3.4$--$4.8\times$. We deliberately do \emph{not} read a precise trend into the carrier multiplier (Section~\ref{sec:mechanism}): once the carrier is gated the model is broken and its perplexity is numerically unstable, so we report the carrier/attention \emph{gap}, of order $10^2$--$10^3$, as the robust quantity rather than a two-significant-figure multiplier. The design is not a small-scale artifact; its core property holds across the grown sizes. (ii) The continual long-context training pays off: at 565M the cross-window carry hurt (the model had never been trained with it); the 706M, trained with the curriculum mixed-window schedule, uses it, next-window perplexity now improving with the carry (21.6 vs 22.3).
 
-\begin{table*}[t]\centering\small
+\begin{table}[t]\centering\small
 \caption{Progression of the spin-dominant model across grown sizes (all through the same harnesses). Nearly every metric improves or holds; LAMBADA gains most, and the cross-window carry flips from a liability to a benefit once the model is trained with it. Carrier-ablation multipliers are order-of-magnitude only: a catastrophically ablated model's perplexity is numerically unstable (matched-fraction ablation is non-monotonic, Section~\ref{sec:mechanism}). The robust finding is the two-to-three order-of-magnitude carrier/attention gap at every size, not the exact multiplier.}
 \label{tab:prog}
 \begin{tabular}{@{}l r r r r@{}}
@@ -297,18 +301,18 @@ Multi-hop battery (greedy) & 2/10 & 3/10 & \textbf{4/11} & 4/11 \\
 Cross-window carry & & hurts & helps (21.6 vs 22.3) & helps \\
 \bottomrule
 \end{tabular}
-\end{table*}
+\end{table}
 
-\begin{figure*}[t]\centering
+\begin{figure}[t]\centering
 \includegraphics[width=0.92\textwidth]{figs/progression.pdf}
 \caption{Progression across the four grown sizes. Validation perplexity falls, and LAMBADA and the greedy multi-hop battery both rise monotonically, the design improving consistently as it grows and trains, with the largest gains on the tokens-limited axes.}
 \label{fig:prog}
-\end{figure*}
+\end{figure}
 
 \subsection{A non-controlled external reference (illustrative only)}
 A fair objection is that placing a recurrence at the core might cost multi-hop reasoning specifically. We cannot settle this without a same-corpus matched transformer, which is outside our compute budget. For rough context only, we ran one published open transformer of similar size and token budget (Cerebras-GPT-1.3B) through the identical harness (Table~\ref{tab:cerebras}). This is a non-controlled comparison: tokenizer, corpus, optimizer, and recipe all differ, so we draw no architectural conclusion from it. One observation is at least consistent with a scale (not architecture) reading of the multi-hop weakness: on ARC-Challenge both models sit at chance (24.3 and 25.7), the reference transformer reasoning no better at this scale either. The reference is ahead on general-English fluency, exactly where its larger size, general-web corpus, and standard tokenizer would help.
 
-\begin{table*}[t]\centering\small
+\begin{table}[t]\centering\small
 \caption{Our 1B (spin-dominant) vs a roughly token-matched transformer (illustrative, non-controlled). On the multi-hop task (ARC-Challenge) both sit at chance; the transformer's lead is concentrated on general-English fluency, where our custom corpus and tokenizer are confounds.}
 \label{tab:cerebras}
 \begin{tabular}{@{}l r r r r r r@{}}
@@ -319,7 +323,7 @@ Model & Params & PIQA & ARC-Easy & ARC-Challenge & HellaSwag & LAMBADA \\
 Cerebras-GPT-1.3B (transformer) & 1316M & 67.1 & 38.9 & 25.7 & 35.9 & 47.0 \\
 \bottomrule
 \end{tabular}
-\end{table*}
+\end{table}
 
 \section{Limitations}
 \label{sec:limitations}
@@ -328,7 +332,7 @@ Every claim above carries a number; the open frontier is equally explicit. \emph
 \section{Conclusion}
 Pragnosia is a transformer/state-space hybrid in which a diagonal-complex spin recurrence is the core token-mixer, wrapped in a self-calibrating controller for continual learning, a persistent in-weights episodic memory, an introspection layer, and self-governed growth, with no hand-set constants. The central, honest finding is about placement: a single spin carrier drifts to a causally-negligible side-channel as the model scales (0.028\% of the loss at 1.4B), and a parameter-matched ablation shows the intended spin-dominant design is the most parameter-efficient (219 vs 279 ppl). At 284M, the first at-scale training of the intended build, ablating the carrier costs $306\times$ in perplexity versus $3.4\times$ for attention: the spin carrier is the load-bearing core, the exact inverse of the 1.4B drift. The remaining work is a matched transformer baseline and multi-seed replication at 1B, and training the models to their compute-optimal token budget. We release the full system, every measured number, and every limitation.
 
-\bibliographystyle{IEEEtran}
+\bibliographystyle{unsrtnat}
 \bibliography{references}
 
 \end{document}
