@@ -1215,12 +1215,28 @@ class Brain(nn.Module):
                         "is UNTRAINED, so the reading isn't meaningful yet -- training it on image-text pairs is the "
                         "next GPU step; the spin LM itself stays frozen."}
 
+    def _worth_consolidating(self, thought):
+        """HONESTY GATE ON THE MONOLOGUE: a self-generated thought may be written to memory/weights only if it
+        is NOVEL (not already known) AND passes the truth probe (the internal state looks like it KNOWS this,
+        not a confident confabulation). Without this gate the monologue teaches its OWN novel thoughts on
+        novelty alone -- for a small model that confabulates, that self-poisons the weights with hallucinated
+        'facts'. Novel AND verified, not just novel. Returns (ok, reason, novelty, knows)."""
+        if not thought or not str(thought).strip():
+            return False, "empty", 0.0, 0.0
+        nov = self._novelty(thought)
+        if nov <= self.novelty_min:
+            return False, "not novel", nov, 1.0
+        knows = self.truth_probe(thought) if getattr(self, "_truth_probe", None) is not None else 1.0
+        if knows <= getattr(self, "_truth_floor", 0.5):
+            return False, "fails honesty probe (looks like confabulation)", nov, knows
+        return True, "novel + verified", nov, knows
+
     def think_aloud(self, seed=None, steps=4):
         """AUTONOMOUS INTERNAL MONOLOGUE -- a self-driven train of thought. It takes a topic (its
         own curiosity), REFLECTS on it (deliberates), notices if it's LOOPING (metacognition),
-        LEARNS what's genuinely new (consolidation), and WONDERS the next topic from its OWN
-        thought -- chaining onward by itself. Composes memory + metacognition + deliberation +
-        curiosity into one living loop. Returns the monologue trace."""
+        LEARNS what's genuinely new AND VERIFIED (honesty-gated consolidation), and WONDERS the next
+        topic from its OWN thought -- chaining onward by itself. Composes memory + metacognition +
+        deliberation + curiosity into one living loop. Returns the monologue trace."""
         topic = seed or self._last_topic
         monologue, seen = [], set()
         for _ in range(steps):
@@ -1229,8 +1245,11 @@ class Brain(nn.Module):
             stuck = topic.lower() in seen                          # metacognition: am I going in circles?
             seen.add(topic.lower())
             entry = {"topic": topic, "thought": thought[:140], "stuck": stuck}
-            if self.learn and not stuck and self._novelty(thought) > self.novelty_min:
-                self.teach(thought, max_steps=20); entry["learned"] = True   # consolidate a novel reflection
+            ok, why, _nov, _knows = self._worth_consolidating(thought)  # HONESTY GATE (anti self-poisoning)
+            if self.learn and not stuck and ok:
+                self.teach(thought, max_steps=20); entry["learned"] = True   # consolidate a novel, VERIFIED reflection
+            elif self.learn and not stuck:
+                entry["skipped"] = why                             # e.g. failed the honesty probe -> NOT consolidated
             nxt = self.wonder(thought)                             # curiosity: next topic from its own thought
             if stuck or not nxt or nxt.lower() == topic.lower():   # looping -> look OUTWARD to break free
                 info = self.search(topic) if self.learn else None
@@ -1249,13 +1268,15 @@ class Brain(nn.Module):
         seed = self._last_topic or (self.workspace.get("focus") if self.workspace else None) or "the world"
         thought = self._deliberate(f"Briefly, {seed}:")[:120]
         self.broadcast(thought)                          # the thought becomes the attended state (workspace)
-        nov = self._novelty(thought)
-        if self.learn and nov > self.novelty_min:
-            self._remember(thought, min(1.0, nov))       # a novel thought is written to episodic memory
+        ok, why, nov, knows = self._worth_consolidating(thought)   # HONESTY GATE (anti self-poisoning)
+        wrote = False
+        if self.learn and ok:
+            self._remember(thought, min(1.0, nov)); wrote = True   # a novel, VERIFIED thought -> episodic memory
         nxt = self.wonder(thought)
         if nxt: self._last_topic = nxt
         self.appraise("novelty", min(1.0, nov))          # thinking stirs mild arousal
-        return {"thought": thought, "next": nxt, "mood": self.feel()[0]}
+        return {"thought": thought, "next": nxt, "mood": self.feel()[0], "consolidated": wrote,
+                "knows": round(knows, 2), "gate": why}
 
     def interact(self, text):
         """The brain's ONE way of engaging with anything you say -- this IS the living

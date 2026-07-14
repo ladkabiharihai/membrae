@@ -166,6 +166,27 @@ not the spin's true potential. The fair comparison is transformer-baseline vs th
 (`pragnosia_284m_fair.pt`, in progress). `crux_compare.py` auto-detects it. Do NOT read a winner from the
 pre-fix numbers.
 
+## 13. Internal monologue: honesty-gated consolidation (`monologue_effect.py`)
+Added an honesty gate on the monologue: a self-generated thought is written to memory/weights only if NOVEL
+**and** it passes the truth probe (internal state looks known, not confabulated) -- `brain._worth_consolidating`,
+wired into `think_aloud` and `background_tick`. Prevents the monologue self-poisoning the weights with its own
+hallucinations (previously it consolidated on novelty alone).
+
+Measured on 20 self-generated thoughts (1B):
+| | value |
+|---|---|
+| Pass honesty (knows > 0.5) | 7/20 |
+| Blocked as confabulation | **13/20 (65%)** |
+| Mean knows: kept vs blocked | **0.80 vs 0.28** |
+
+The gate keeps the one genuinely-correct thought ("Photosynthesis is how plants turn sunlight...", 0.90) and
+blocks the filler/off-topic/confabulated ones (0.10-0.21). **Two honest findings:** (1) the gate discriminates
+cleanly -- anti-self-poisoning validated; (2) raw monologue quality is poor (65% of thoughts are junk) because
+it is capped by the weak base LM, and separately the novelty gate currently blocks ALL consolidation
+(novelty_min > observed novelty) -- so the monologue is presently safe but inert. Making it genuinely useful
+needs the better base model (thoughts worth keeping) and a latent-first redesign; the safety gate is the
+first honest step and it is done + measured.
+
 ## What these numbers changed
 - **Paper:** ablation multipliers reframed to order-of-magnitude + instability note (C4); T1.8 disclosed in
   a new mechanism subsection and the multi-hop limitation reframed from "just undertrained" to a
