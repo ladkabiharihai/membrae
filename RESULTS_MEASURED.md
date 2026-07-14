@@ -151,6 +151,21 @@ numeric match for GSM8K, on the custom tokenizer.
 Honest profile of a small model undertrained on a reasoning-heavy custom corpus. Folded into the paper's
 benchmarks section.
 
+## 12. THE CRUX — matched transformer vs spin 284M (`crux_compare.py`) — comparison PENDING fair spin
+The matched attention-only transformer baseline (289M, carrier=none, 418K steps, same corpus/budget) is
+trained and confirmed. But the lr-floor bug (`f3277c1`) crippled runs that did not get the warm-restart fix:
+the baseline itself was stuck at **val ppl 174.8** until the fix took it to **21.01**.
+
+| Model | params | val ppl (200-it harness) | val ppl (training) | fair? |
+|---|---|---|---|---|
+| transformer baseline (fixed-lr) | 289M | 22.22 | 21.01 | yes |
+| spin 284M (**PRE-FIX, crippled**) | 284M | 25.68 | 24.54 | **NO** |
+
+**Status: NOT DECIDED.** The old spin 284M ran WITHOUT the lr fix, so 24.54/25.68 is a handicapped number,
+not the spin's true potential. The fair comparison is transformer-baseline vs the re-run **fixed-lr** spin
+(`pragnosia_284m_fair.pt`, in progress). `crux_compare.py` auto-detects it. Do NOT read a winner from the
+pre-fix numbers.
+
 ## What these numbers changed
 - **Paper:** ablation multipliers reframed to order-of-magnitude + instability note (C4); T1.8 disclosed in
   a new mechanism subsection and the multi-hop limitation reframed from "just undertrained" to a
