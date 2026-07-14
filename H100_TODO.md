@@ -76,6 +76,25 @@ retrieval by length L128/256/512/1024/2048 = 0.47/0.13/0.13/0.07/0.07 -> sharp r
 256 train window (supports the paper's "gist not verbatim" limitation). If the coupling/longer-ctx training
 lifts this curve, that is a real long-context result to report.
 
+## 5. Continue training the 1B further (long-context carry convergence) -- READ BEFORE RESUMING
+When resuming continued training of the 1B to strengthen the cross-window carry, apply these three rules
+(they matter more than the raw token count):
+
+1. **Raise the LR first, or it won't learn the new objective.** At 7.5e-5 with the schedule floored, the
+   cross-window carry will only crawl in. Learning a genuinely new capability (writing/using cross-window
+   state) wants ~1-2e-4 -- let the LR warm back up rather than resume at the floor. This is the single
+   biggest lever, more than the token budget.
+
+2. **Train to convergence of the long-context metrics, not a fixed step target.** Eval every ~50-100K steps
+   on W1/W8/W32 ppl + the needle curve, and stop when BOTH:
+   - W32 ppl and the needle curve stop improving for 2-3 consecutive evals, AND
+   - W1 ppl has NOT regressed vs the 18.02 base (short-context skill intact -- the 30% W1 in the mix
+     protects this; watch it).
+
+3. **Ballpark budget:** on the order of 1-3B additional tokens for the carry to converge (the 706M learned
+   it in a comparable budget). At the shared rate ~20K tok/s that's ~14h-2 days; free the GPU of the
+   inference stack (~100-200K tok/s) and it's a few hours.
+
 ---
 
 ## Paper status (laptop side, done, no GPU)

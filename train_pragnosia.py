@@ -219,7 +219,7 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     pf = H.Prefetcher(td, bs, depth=4) if use_prefetch else None
     def get_batch():
         return pf.next() if pf else H.batch(td, bs)
-    warm = 2000
+    warm = int(os.environ.get("WARM", "2000"))       # lr warmup steps (env so a hot start can be given a longer ramp)
     # ADAPTIVE lr (no fixed schedule): warm up, then let the VAL signal drive it  halve on
     # degradation, ease on plateau (mirrors grow-on-saturation). lr_scale self-tunes; --lr is
     # just the initial peak. So a too-high start auto-corrects instead of silently degrading.
@@ -372,9 +372,17 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                 if it > warm and ppl > best * (1 + 2 * vnoise) and lr_scale > 0.02:   # degraded past the noise -> cut
                     lr_scale *= 0.5; lr_wait = 0
                     pbar.write(f"  ~~ lr auto-CUT (val {ppl:.2f} > best +{2*vnoise*100:.1f}% noise) -> lr {lr*lr_scale:.2e} (scale {lr_scale:.3f})")
-                elif lr_wait >= lr_patience and lr_scale > 0.02:               # plateaued -> ease down
+                elif lr_wait >= lr_patience and lr_scale > 0.02:               # plateaued (above floor) -> ease down
                     lr_scale *= 0.7; lr_wait = 0
                     pbar.write(f"  ~~ lr auto-EASED (plateau) -> lr {lr*lr_scale:.2e} (scale {lr_scale:.3f})")
+                elif lr_wait >= 2 * lr_patience and lr_scale <= 0.02:           # FLOORED and still stuck: the controller
+                    # only ever cuts, so early-training val noise can ratchet lr down to the floor and pin it there --
+                    # the model then crawls forever at a too-low lr (this crippled a 288M baseline at ppl 174.8 and
+                    # floored the 1B at 7.5e-5). If we're at the floor AND have plateaued for 2x the normal patience
+                    # (i.e. it's genuinely stuck, not noise), WARM-RESTART the lr back UP to escape. Best-ckpt is
+                    # protected (save-on-best), so a raise can only help: it either finds a new best or gets re-trimmed.
+                    lr_scale = min(1.0, lr_scale * 4.0); lr_wait = 0
+                    pbar.write(f"  ~~ lr auto-RAISED (floored plateau -- lr was cut too far) -> lr {lr*lr_scale:.2e} (scale {lr_scale:.3f})")
             # SELF-GOVERNING GROWTH (no hardcoded caps). A plateau is only a HINT, not a
             # licence to grow -- a high-loss plateau is just stuck on lr/data, NOT saturation
             # (that exact confusion is how an undertrained model ballooned to 1.4B). So on a
