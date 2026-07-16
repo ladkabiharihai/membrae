@@ -51,14 +51,24 @@ Retrain the 284M spin-dominant at 2-3 seeds; re-run the ablation each time. Revi
 Does letting the slow carrier MODULATE the fast attention pathway beat the parallel design? Warm-started, so
 cheap. Code: `s6_hybrid.py` CoupledBlock + carrier="spin_dominant_coupled" (smoke-tested, 0.1% param overhead,
 inits near-identity).
+STAGED PLAN (test cheap at 284M first, scale to 1B ONLY on success):
+
+STAGE A -- test the coupling at 284M (cheap, clean control, base co-adapts):
 ```
-python3 init_coupled.py pragnosia_sft.pt          # or pragnosia_spin.pt -> warm-start pragnosia_coupled.pt
-CONFIG=pragnosia_coupled.json python3 train_pragnosia.py --resume --steps 30000
-# CONTROL: continue the SAME base for 30000 steps too (no coupling), same data/lr.
-# compare: CONFIG=pragnosia_coupled.json python3 eval_battery.py coupled
-#          (base) python3 eval_battery.py base_control
-# WIN: coupled val ppl / multi-hop / long-ctx beats the control at matched steps -> a fast-slow contribution.
-# If no gain, report as a negative result (honest) and keep the parallel design.
+CONFIG=pragnosia_coupled_284m.json python3 init_coupled.py pragnosia_284m_fair.pt   # warm-start (recipe verified)
+CONFIG=pragnosia_coupled_284m.json python3 train_pragnosia.py --resume --steps 30000 --lr <fair-spin lr>
+# CONTROL (required): continue the SAME fair spin base for 30000 steps, no coupling, same data/lr.
+#   CONFIG=pragnosia_284m_fair.json python3 train_pragnosia.py --resume --steps 30000
+# compare COUPLED-final vs CONTROL-final (NOT vs coupled@init): val ppl + multi-hop + needle.
+# WIN = coupled beats the base CONTROL at matched steps. If neutral/loses -> honest negative, STOP (don't
+#   waste 1B compute; the frozen-1B probe was already neutral, so 284M is the decider).
+```
+
+STAGE B -- ONLY if Stage A wins: scale 284M->1B with coupling.
+```
+# grow the WINNING coupled-284M to 1B (function-preserving growth) + mixed-window continued training.
+# CAVEAT: grow.py must carry the CoupledBlock's extra params (to_slow/slow/from_slow) through a grow step
+#   -- verify it does before launching (a plain layer/width grow may drop them). Flag if it needs a patch.
 ```
 NOTE (laptop probe already run): a FROZEN-base coupling probe on the 18.02 snapshot was NEUTRAL (19.005 vs
 true base 19.046, +0.04 within noise; eval_registry/coupled_probe.json). That is a lower bound -- a frozen
