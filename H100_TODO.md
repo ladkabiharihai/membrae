@@ -51,17 +51,21 @@ Retrain the 284M spin-dominant at 2-3 seeds; re-run the ablation each time. Revi
 Does letting the slow carrier MODULATE the fast attention pathway beat the parallel design? Warm-started, so
 cheap. Code: `s6_hybrid.py` CoupledBlock + carrier="spin_dominant_coupled" (smoke-tested, 0.1% param overhead,
 inits near-identity).
-STAGED PLAN (test cheap at 284M first, scale to 1B ONLY on success):
+STAGED PLAN (test at 284M first, scale to 1B ONLY on success):
 
-STAGE A -- test the coupling at 284M (cheap, clean control, base co-adapts):
+STAGE A -- test the coupling at 284M, FROM SCRATCH (both arms), matched budget:
+IMPORTANT: do NOT warm-start-and-continue. The converged fair spin has NO HEADROOM on its own training
+data, so continued training only drifts UP for both arms and the coupling cannot show benefit -- verified on
+the laptop (lr 2e-4 -> both ~58 ppl; lr 5e-5 -> both climbing) and consistent with the neutral frozen-1B
+probe. The coupling adds CAPACITY, which only pays off with room to fit the data (from scratch, where the 37M
+spin win was measured). So train both arms from random init at a matched budget:
 ```
-CONFIG=pragnosia_coupled_284m.json python3 init_coupled.py pragnosia_284m_fair.pt   # warm-start (recipe verified)
-CONFIG=pragnosia_coupled_284m.json python3 train_pragnosia.py --resume --steps 30000 --lr <fair-spin lr>
-# CONTROL (required): continue the SAME fair spin base for 30000 steps, no coupling, same data/lr.
-#   CONFIG=pragnosia_284m_fair.json python3 train_pragnosia.py --resume --steps 30000
-# compare COUPLED-final vs CONTROL-final (NOT vs coupled@init): val ppl + multi-hop + needle.
-# WIN = coupled beats the base CONTROL at matched steps. If neutral/loses -> honest negative, STOP (don't
-#   waste 1B compute; the frozen-1B probe was already neutral, so 284M is the decider).
+# fresh ckpts (do NOT clobber pragnosia_284m_fair.pt). Use a from-scratch spin config for the CONTROL.
+CONFIG=pragnosia_284m_scratch.json   python3 train_pragnosia.py --steps 100000   # base spin, from scratch
+CONFIG=pragnosia_coupled_284m.json   python3 train_pragnosia.py --steps 100000   # coupled, from scratch (same seed/budget)
+# ~100K steps (~1.6B tokens) is a fast signal; the 37M spin win showed by ~30M tokens, so a gap should appear early.
+# compare best val ppl (+ multi-hop). WIN = coupled < base at matched steps -> scale to 1B. If neutral/worse
+# -> honest negative, STOP (both the frozen-1B probe and this decide it; do not waste 1B compute).
 ```
 
 STAGE B -- ONLY if Stage A wins: scale 284M->1B with coupling.

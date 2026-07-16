@@ -202,6 +202,21 @@ reliably wins. **The 21% spin advantage at 37M narrows to parity at 284M.** Hone
 *competitive* with a matched transformer at scale and does NOT collapse (contrast the 1.4B drift); we do NOT
 claim it wins at 284M. The carrier remains the load-bearing computation by ablation regardless.
 
+## 15. Coupling at 284M (laptop) -- inconclusive BY DESIGN; needs from-scratch on H100
+Tried Stage A on the laptop as warm-start-from-fair-spin + continue (coupled vs base control, matched
+lr/data/steps). Result: the fair spin is CONVERGED on window2_train, so continued training has no headroom --
+both arms only DRIFT UP:
+| lr | control end | coupled end | verdict |
+|---|---|---|---|
+| 2e-4 | 57.7 (from 22.3) | 58.0 | both destroyed; coupled ~= control |
+| 5e-5 | climbing (22.3->24.4 @500) | (stopped) | both degrading; no headroom |
+
+**This does NOT decide the coupling.** Warm-start-continue is the wrong test (no headroom); the coupling adds
+capacity, which only helps trained FROM SCRATCH with room to fit the data (where the 37M spin win was
+measured). A from-scratch 284M coupled-vs-base run is not laptop-feasible (hours). Moved to H100_TODO Stage A
+as a from-scratch run. Honest status of the coupling: **still undecided** (frozen-1B probe neutral, laptop
+warm-start inconclusive) -- the from-scratch 284M test on the H100 is the real decider.
+
 ## What these numbers changed
 - **Paper:** ablation multipliers reframed to order-of-magnitude + instability note (C4); T1.8 disclosed in
   a new mechanism subsection and the multi-hop limitation reframed from "just undertrained" to a
