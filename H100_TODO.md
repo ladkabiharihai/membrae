@@ -60,12 +60,16 @@ the laptop (lr 2e-4 -> both ~58 ppl; lr 5e-5 -> both climbing) and consistent wi
 probe. The coupling adds CAPACITY, which only pays off with room to fit the data (from scratch, where the 37M
 spin win was measured). So train both arms from random init at a matched budget:
 ```
-# fresh ckpts (do NOT clobber pragnosia_284m_fair.pt). Use a from-scratch spin config for the CONTROL.
-CONFIG=pragnosia_284m_scratch.json   python3 train_pragnosia.py --steps 100000   # base spin, from scratch
-CONFIG=pragnosia_coupled_284m.json   python3 train_pragnosia.py --steps 100000   # coupled, from scratch (same seed/budget)
+# both arms: FRESH ckpts (won't clobber pragnosia_284m_fair.pt), --no-grow (fixed 284M), SAME explicit --lr
+# (match, e.g. the crux peak ~6e-3, so the two arms differ ONLY in the coupling), same --steps.
+CONFIG=pragnosia_284m_scratch.json  python3 train_pragnosia.py --steps 100000 --no-grow --lr 0.006  # CONTROL: base spin
+CONFIG=pragnosia_coupled_284m.json  python3 train_pragnosia.py --steps 100000 --no-grow --lr 0.006  # COUPLED
+# then, best-vs-best under one harness:
+#   python3 crux_compare.py   (or eval_battery.py on each ckpt)  -- add pragnosia_284m_scratch.pt / pragnosia_coupled_284m.pt
 # ~100K steps (~1.6B tokens) is a fast signal; the 37M spin win showed by ~30M tokens, so a gap should appear early.
-# compare best val ppl (+ multi-hop). WIN = coupled < base at matched steps -> scale to 1B. If neutral/worse
-# -> honest negative, STOP (both the frozen-1B probe and this decide it; do not waste 1B compute).
+# WIN = coupled best-val < base best-val at matched steps -> scale to 1B (Stage B). If neutral/worse ->
+# honest negative, STOP (frozen-1B probe + this decide it; do not waste 1B compute).
+# (--lr 0 would DERIVE per-arch and could differ slightly between arms; an explicit matched lr is cleaner.)
 ```
 
 STAGE B -- ONLY if Stage A wins: scale 284M->1B with coupling.
