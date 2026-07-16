@@ -17,14 +17,19 @@ H.VOC, H.L = VOC, CTX
 tok = Tokenizer.from_file("data/bpe.json")
 vd = np.memmap("data/big_valid.bin", dtype=np.int16, mode="r")
 
-MODELS = [
-    ("transformer_baseline (fixed-lr)", "pragnosia_baseline.pt", dict(d=768, heads=12, layers=21, mlp_mult=9, carrier="none")),
-    ("spin_dominant_284M (PRE-FIX, provisional)", "pragnosia_284m.pt", dict(d=768, heads=12, layers=20, mlp_mult=9, carrier="spin_dominant")),
-]
-# fair-lr spin, if the re-run checkpoint is present locally
+TF = dict(d=768, heads=12, layers=21, mlp_mult=9, carrier="none")
+SP = dict(d=768, heads=12, layers=20, mlp_mult=9, carrier="spin_dominant")
+# THE FAIR CRUX: best-vs-best, both fixed-lr, both from-scratch fixed-284M, matched 418K steps / 6.85B tokens.
+MODELS = []
+if os.path.exists("pragnosia_baseline_best.pt"):
+    MODELS.append(("transformer_baseline (fixed-lr, BEST)", "pragnosia_baseline_best.pt", TF))
 if os.path.exists("pragnosia_284m_fair.pt"):
-    MODELS.append(("spin_dominant_284M (fixed-lr, FAIR)", "pragnosia_284m_fair.pt",
-                   dict(d=768, heads=12, layers=20, mlp_mult=9, carrier="spin_dominant")))
+    MODELS.append(("spin_dominant_284M (fixed-lr, BEST, FAIR)", "pragnosia_284m_fair.pt", SP))
+# references (not the fair comparison)
+if os.path.exists("pragnosia_baseline.pt"):
+    MODELS.append(("transformer_baseline (final ckpt, ref)", "pragnosia_baseline.pt", TF))
+if os.path.exists("pragnosia_284m.pt"):
+    MODELS.append(("spin_284M (PRE-FIX, crippled ref)", "pragnosia_284m.pt", SP))
 
 MULTIHOP = {
     "1hop": [("The capital of France is", "paris"), ("The largest planet in the solar system is", "jupiter"),

@@ -187,6 +187,21 @@ it is capped by the weak base LM, and separately the novelty gate currently bloc
 needs the better base model (thoughts worth keeping) and a latent-first redesign; the safety gate is the
 first honest step and it is done + measured.
 
+## 14. THE CRUX — DECIDED: a statistical TIE at 284M (`crux_compare.py`)
+Both models: fixed-284M from scratch (spin confirmed NO growth), same corpus/tokenizer, matched budget
+(418K steps, 6.85B tokens), both with the lr-floor fix.
+
+| | training best val ppl | my 200-it harness | multi-hop |
+|---|---|---|---|
+| transformer (289M, carrier=none) | 21.01 | 22.89 (best) / 22.22 (final) | 2/8, 1/3 |
+| spin-dominant (284M, fair-lr) | **20.92** | 22.32 | 3/8, 2/3 |
+
+**Verdict: TIE.** Training-best gap is 0.4% (spin marginally ahead). But the transformer's own best-vs-final
+checkpoints differ by ~0.7 ppl in my harness -- LARGER than the spin-vs-transformer gap -- so neither
+reliably wins. **The 21% spin advantage at 37M narrows to parity at 284M.** Honest claim: spin-dominant is
+*competitive* with a matched transformer at scale and does NOT collapse (contrast the 1.4B drift); we do NOT
+claim it wins at 284M. The carrier remains the load-bearing computation by ablation regardless.
+
 ## What these numbers changed
 - **Paper:** ablation multipliers reframed to order-of-magnitude + instability note (C4); T1.8 disclosed in
   a new mechanism subsection and the multi-hop limitation reframed from "just undertrained" to a
