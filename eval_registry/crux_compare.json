@@ -1,0 +1,38 @@
+{
+  "transformer_baseline (fixed-lr, BEST)": {
+    "ckpt": "pragnosia_baseline_best.pt",
+    "params_M": 288.5,
+    "val_ppl_200it": 22.892,
+    "multihop": {
+      "1hop": "2/8",
+      "2hop": "1/3"
+    }
+  },
+  "spin_dominant_284M (fixed-lr, BEST, FAIR)": {
+    "ckpt": "pragnosia_284m_fair.pt",
+    "params_M": 284.4,
+    "val_ppl_200it": 22.318,
+    "multihop": {
+      "1hop": "3/8",
+      "2hop": "2/3"
+    }
+  },
+  "transformer_baseline (final ckpt, ref)": {
+    "ckpt": "pragnosia_baseline.pt",
+    "params_M": 288.5,
+    "val_ppl_200it": 22.221,
+    "multihop": {
+      "1hop": "1/8",
+      "2hop": "2/3"
+    }
+  },
+  "spin_284M (PRE-FIX, crippled ref)": {
+    "ckpt": "pragnosia_284m.pt",
+    "params_M": 284.4,
+    "val_ppl_200it": 25.676,
+    "multihop": {
+      "1hop": "1/8",
+      "2hop": "1/3"
+    }
+  }
+}

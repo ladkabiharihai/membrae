@@ -1,0 +1,16 @@
+{
+  "steps": 2500,
+  "lr": 0.0002,
+  "control": {
+    "val_ppl_start": 22.305,
+    "val_ppl_end": 57.688,
+    "multihop": "0/6"
+  },
+  "coupled": {
+    "val_ppl_start": 22.367,
+    "val_ppl_end": 57.994,
+    "multihop": "0/6"
+  },
+  "coupled_minus_control_ppl": 0.306,
+  "coupling_helps": false
+}

@@ -1,0 +1,13 @@
+{
+  "base": "pragnosia_spin_h100.pt",
+  "steps": 1500,
+  "trainable_M": 0.605,
+  "val_ppl_before": 23.704,
+  "val_ppl_after": 19.005,
+  "delta": 4.698,
+  "coupling_helps_frozen_base": false,
+  "true_base_ppl": 19.046,
+  "coupled_after_ppl": 19.005,
+  "coupled_vs_true_base_delta": 0.041,
+  "honest_verdict": "NEUTRAL on frozen base (19.005 vs true base 19.046, +0.04 within noise). The naive before/after delta was an artifact of the near-identity init recovering its own cost. Frozen-base is a lower bound; the coupling likely needs base co-adaptation -> the full H100 fine-tune (TODO #3) is still the real test, not yet decided."
+}

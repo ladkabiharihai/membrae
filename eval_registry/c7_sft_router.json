@@ -1,0 +1,84 @@
+{
+  "before": {
+    "route": {
+      "controller_recall": "5/18",
+      "neg_specificity": "10/12",
+      "spec_rate": 0.833,
+      "recall_rate": 0.278
+    },
+    "fluency": {
+      "Hi": {
+        "answer": "Hi! I'm Pragnosia. Ask me something, or tell me a fact and I'll rememb",
+        "words": 18
+      },
+      "Who are you?": {
+        "answer": "I am Pragnosia, a small recurrent language model. My core mixer is a s",
+        "words": 20
+      },
+      "What is the capital of France?": {
+        "answer": "Paris. I'm Pragnosia. I learn French and follow a language model, whic",
+        "words": 20
+      },
+      "Who wrote Hamlet?": {
+        "answer": "Hamlet. I'm Pragnosia, a small recurrent language model. My core mixer",
+        "words": 17
+      },
+      "What is photosynthesis?": {
+        "answer": "Photosynthesis is how plants turn sunlight, water, and carbon dioxide ",
+        "words": 21
+      },
+      "What are you bad at?": {
+        "answer": "Honestly, I am small and undertrained: I often get multi-step reasonin",
+        "words": 17
+      }
+    },
+    "route_margin": 0.083
+  },
+  "after": {
+    "route": {
+      "controller_recall": "5/18",
+      "neg_specificity": "10/12",
+      "spec_rate": 0.833,
+      "recall_rate": 0.278
+    },
+    "fluency": {
+      "Hi": {
+        "answer": "Hi! I'm Pragnosia. Ask me something, or tell me a fact and I'll rememb",
+        "words": 15
+      },
+      "Who are you?": {
+        "answer": "I am Pragnosia, a small recurrent language model.",
+        "words": 8
+      },
+      "What is the capital of France?": {
+        "answer": "Paris.",
+        "words": 1
+      },
+      "Who wrote Hamlet?": {
+        "answer": "Hamlet.",
+        "words": 1
+      },
+      "What is photosynthesis?": {
+        "answer": "Photosynthesis is how plants turn sunlight, water, and carbon dioxide ",
+        "words": 12
+      },
+      "What are you bad at?": {
+        "answer": "Honestly, I am small and undertrained: I often get multi-step reasonin",
+        "words": 12
+      }
+    },
+    "route_margin": 0.0792,
+    "adapter_layers": 161,
+    "adapter_tensors_loaded": 322
+  },
+  "verdict": {
+    "specificity_holds": true,
+    "spec_before": 0.833,
+    "spec_after": 0.833,
+    "recall_before": 0.278,
+    "recall_after": 0.278,
+    "total_words_before": 113,
+    "total_words_after": 49,
+    "shippable": true
+  }
+}

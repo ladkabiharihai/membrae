@@ -1,0 +1,134 @@
+{
+  "pos_gap_quartiles": [
+    -0.015,
+    0.012,
+    0.046,
+    0.052,
+    0.055,
+    0.057,
+    0.057,
+    0.068,
+    0.071,
+    0.078,
+    0.083,
+    0.091,
+    0.099,
+    0.1,
+    0.134,
+    0.173,
+    0.227,
+    0.245
+  ],
+  "neg_gap_quartiles": [
+    -0.177,
+    -0.162,
+    -0.11,
+    -0.009,
+    -0.0,
+    0.019,
+    0.035,
+    0.037,
+    0.043,
+    0.045,
+    0.116,
+    0.141
+  ],
+  "sweep": [
+    {
+      "margin": 0.0,
+      "acc": 0.533,
+      "ctrl_recall": "11/18",
+      "neg_specificity": "5/12",
+      "neg_spec_rate": 0.417,
+      "ctrl_recall_rate": 0.611
+    },
+    {
+      "margin": 0.01,
+      "acc": 0.533,
+      "ctrl_recall": "11/18",
+      "neg_specificity": "5/12",
+      "neg_spec_rate": 0.417,
+      "ctrl_recall_rate": 0.611
+    },
+    {
+      "margin": 0.02,
+      "acc": 0.567,
+      "ctrl_recall": "11/18",
+      "neg_specificity": "6/12",
+      "neg_spec_rate": 0.5,
+      "ctrl_recall_rate": 0.611
+    },
+    {
+      "margin": 0.03,
+      "acc": 0.567,
+      "ctrl_recall": "11/18",
+      "neg_specificity": "6/12",
+      "neg_spec_rate": 0.5,
+      "ctrl_recall_rate": 0.611
+    },
+    {
+      "margin": 0.04,
+      "acc": 0.633,
+      "ctrl_recall": "11/18",
+      "neg_specificity": "8/12",
+      "neg_spec_rate": 0.667,
+      "ctrl_recall_rate": 0.611
+    },
+    {
+      "margin": 0.05,
+      "acc": 0.667,
+      "ctrl_recall": "10/18",
+      "neg_specificity": "10/12",
+      "neg_spec_rate": 0.833,
+      "ctrl_recall_rate": 0.556
+    },
+    {
+      "margin": 0.06,
+      "acc": 0.567,
+      "ctrl_recall": "7/18",
+      "neg_specificity": "10/12",
+      "neg_spec_rate": 0.833,
+      "ctrl_recall_rate": 0.389
+    },
+    {
+      "margin": 0.08,
+      "acc": 0.5,
+      "ctrl_recall": "5/18",
+      "neg_specificity": "10/12",
+      "neg_spec_rate": 0.833,
+      "ctrl_recall_rate": 0.278
+    },
+    {
+      "margin": 0.1,
+      "acc": 0.367,
+      "ctrl_recall": "1/18",
+      "neg_specificity": "10/12",
+      "neg_spec_rate": 0.833,
+      "ctrl_recall_rate": 0.056
+    },
+    {
+      "margin": 0.12,
+      "acc": 0.4,
+      "ctrl_recall": "1/18",
+      "neg_specificity": "11/12",
+      "neg_spec_rate": 0.917,
+      "ctrl_recall_rate": 0.056
+    },
+    {
+      "margin": 0.15,
+      "acc": 0.433,
+      "ctrl_recall": "1/18",
+      "neg_specificity": "12/12",
+      "neg_spec_rate": 1.0,
+      "ctrl_recall_rate": 0.056
+    }
+  ],
+  "best": {
+    "margin": 0.05,
+    "acc": 0.667,
+    "ctrl_recall": "10/18",
+    "neg_specificity": "10/12",
+    "neg_spec_rate": 0.833,
+    "ctrl_recall_rate": 0.556
+  }
+}

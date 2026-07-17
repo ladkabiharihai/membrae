@@ -1,0 +1,90 @@
+{
+  "label": "latest_h100",
+  "params_M": 1022,
+  "ppl": {
+    "W1": 19.39,
+    "W8": 17.9,
+    "W32": 19.41
+  },
+  "multihop": {
+    "1hop": {
+      "acc": 0.5,
+      "hit": 7,
+      "n": 14
+    },
+    "2hop": {
+      "acc": 0.125,
+      "hit": 1,
+      "n": 8
+    },
+    "3hop": {
+      "acc": 0.4,
+      "hit": 2,
+      "n": 5
+    }
+  },
+  "calibration_activation_probe": {
+    "floor": 0.5,
+    "known": {
+      "mean": 0.85,
+      "above_floor": 12,
+      "n": 12,
+      "vals": [
+        1.0,
+        0.731,
+        1.0,
+        0.817,
+        0.938,
+        0.608,
+        0.83,
+        0.71,
+        1.0,
+        1.0,
+        0.571,
+        1.0
+      ]
+    },
+    "nonsense": {
+      "mean": 0.0,
+      "above_floor": 0,
+      "n": 12,
+      "vals": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "half_known": {
+      "mean": 0.669,
+      "above_floor": 9,
+      "n": 12,
+      "vals": [
+        0.878,
+        0.79,
+        0.455,
+        0.593,
+        0.645,
+        0.363,
+        1.0,
+        0.695,
+        0.565,
+        0.456,
+        0.808,
+        0.779
+      ]
+    },
+    "known_answer_rate": 1.0,
+    "known_false_abstain_rate": 0.0,
+    "nonsense_true_abstain_rate": 1.0,
+    "separation": 0.85
+  }
+}

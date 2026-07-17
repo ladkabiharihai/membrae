@@ -1,0 +1,8 @@
+{
+  "model": "pragnosia_284m_fair.pt",
+  "base_ppl": 21.82,
+  "ablate_spin_ppl": 6837.7,
+  "ablate_attn_ppl": 100.42,
+  "spin_x": 313.4,
+  "attn_x": 4.6
+}

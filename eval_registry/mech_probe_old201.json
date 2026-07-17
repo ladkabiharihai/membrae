@@ -1,0 +1,69 @@
+{
+  "layer_kind": [
+    "spin",
+    "spin",
+    "spin",
+    "attn",
+    "spin",
+    "spin",
+    "spin",
+    "attn",
+    "spin",
+    "spin",
+    "spin",
+    "attn",
+    "spin",
+    "spin",
+    "spin",
+    "attn",
+    "spin",
+    "spin",
+    "spin",
+    "attn",
+    "spin",
+    "spin",
+    "spin",
+    "attn",
+    "spin",
+    "spin",
+    "spin",
+    "attn",
+    "spin"
+  ],
+  "T1_8_intermediate_probe": [
+    {
+      "q": "The capital of the country where the Eif",
+      "intermediate": "France",
+      "best_inter_rank": 175,
+      "best_answer_rank": 1,
+      "computes_intermediate": false
+    },
+    {
+      "q": "The largest planet, whose first letter i",
+      "intermediate": "Jupiter",
+      "best_inter_rank": 81,
+      "best_answer_rank": 37,
+      "computes_intermediate": false
+    },
+    {
+      "q": "The language spoken in the country whose",
+      "intermediate": "Japan",
+      "best_inter_rank": 94,
+      "best_answer_rank": 9,
+      "computes_intermediate": false
+    }
+  ],
+  "T3_2_patching": {
+    "clean_logit": 3.33,
+    "corrupt_logit": -2.06,
+    "mean_restore_spin": 0.745,
+    "mean_restore_attn": 0.886,
+    "top_layers": [
+      8,
+      9,
+      7,
+      18,
+      19
+    ]
+  }
+}

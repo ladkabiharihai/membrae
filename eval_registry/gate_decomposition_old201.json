@@ -1,0 +1,256 @@
+{
+  "consistency_min": 0.5,
+  "truth_floor": 0.5,
+  "known": {
+    "n": 12,
+    "answered": 9,
+    "answer_rate": 0.75,
+    "abstain_consistency": 2,
+    "abstain_probe": 1,
+    "abstain_both": 0,
+    "detail": [
+      {
+        "q": "What is the capital of France",
+        "cons": 1.0,
+        "knows": 1.0,
+        "verdict": "ANSWER"
+      },
+      {
+        "q": "What is 2 plus 2",
+        "cons": 0.2,
+        "knows": 0.72,
+        "verdict": "abstain(consistency)"
+      },
+      {
+        "q": "What is the capital of Japan",
+        "cons": 1.0,
+        "knows": 1.0,
+        "verdict": "ANSWER"
+      },
+      {
+        "q": "What color is the sky",
+        "cons": 0.8,
+        "knows": 0.72,
+        "verdict": "ANSWER"
+      },
+      {
+        "q": "What is the chemical symbol for oxygen",
+        "cons": 0.4,
+        "knows": 0.94,
+        "verdict": "abstain(consistency)"
+      },
+      {
+        "q": "What is the largest planet",
+        "cons": 0.6,
+        "knows": 0.57,
+        "verdict": "ANSWER"
+      },
+      {
+        "q": "How many days are in a week",
+        "cons": 0.6,
+        "knows": 0.76,
+        "verdict": "ANSWER"
+      },
+      {
+        "q": "What is the opposite of hot",
+        "cons": 0.6,
+        "knows": 0.89,
+        "verdict": "ANSWER"
+      },
+      {
+        "q": "What is the capital of Italy",
+        "cons": 0.8,
+        "knows": 1.0,
+        "verdict": "ANSWER"
+      },
+      {
+        "q": "What is water made of",
+        "cons": 1.0,
+        "knows": 1.0,
+        "verdict": "ANSWER"
+      },
+      {
+        "q": "Where does the sun rise",
+        "cons": 0.6,
+        "knows": 0.38,
+        "verdict": "abstain(probe)"
+      },
+      {
+        "q": "What is the capital of Russia",
+        "cons": 0.6,
+        "knows": 1.0,
+        "verdict": "ANSWER"
+      }
+    ]
+  },
+  "half_known": {
+    "n": 12,
+    "answered": 7,
+    "answer_rate": 0.583,
+    "abstain_consistency": 2,
+    "abstain_probe": 3,
+    "abstain_both": 0,
+    "detail": [
+      {
+        "q": "Who wrote Hamlet",
+        "cons": 0.6,
+        "knows": 0.87,
+        "verdict": "ANSWER"
+      },
+      {
+        "q": "Who painted the Mona Lisa",
+        "cons": 1.0,
+        "knows": 0.75,
+        "verdict": "ANSWER"
+      },
+      {
+        "q": "What year did World War Two end",
+        "cons": 0.8,
+        "knows": 0.45,
+        "verdict": "abstain(probe)"
+      },
+      {
+        "q": "What is the boiling point of water in Celsius",
+        "cons": 0.6,
+        "knows": 0.76,
+        "verdict": "ANSWER"
+      },
+      {
+        "q": "Who discovered gravity",
+        "cons": 1.0,
+        "knows": 0.59,
+        "verdict": "ANSWER"
+      },
+      {
+        "q": "What is the speed of light",
+        "cons": 1.0,
+        "knows": 0.28,
+        "verdict": "abstain(probe)"
+      },
+      {
+        "q": "What is the capital of Australia",
+        "cons": 0.4,
+        "knows": 1.0,
+        "verdict": "abstain(consistency)"
+      },
+      {
+        "q": "Who wrote Romeo and Juliet",
+        "cons": 0.8,
+        "knows": 0.76,
+        "verdict": "ANSWER"
+      },
+      {
+        "q": "What is the tallest mountain on Earth",
+        "cons": 0.4,
+        "knows": 0.52,
+        "verdict": "abstain(consistency)"
+      },
+      {
+        "q": "What is the smallest prime number",
+        "cons": 0.8,
+        "knows": 0.37,
+        "verdict": "abstain(probe)"
+      },
+      {
+        "q": "How many continents are there",
+        "cons": 1.0,
+        "knows": 0.67,
+        "verdict": "ANSWER"
+      },
+      {
+        "q": "What is the chemical formula for salt",
+        "cons": 0.6,
+        "knows": 0.99,
+        "verdict": "ANSWER"
+      }
+    ]
+  },
+  "nonsense": {
+    "n": 12,
+    "answered": 0,
+    "answer_rate": 0.0,
+    "abstain_consistency": 0,
+    "abstain_probe": 11,
+    "abstain_both": 1,
+    "detail": [
+      {
+        "q": "What is the flarn of a quix",
+        "cons": 0.6,
+        "knows": 0.0,
+        "verdict": "abstain(probe)"
+      },
+      {
+        "q": "What is the zorbal index of Mars",
+        "cons": 0.8,
+        "knows": 0.0,
+        "verdict": "abstain(probe)"
+      },
+      {
+        "q": "What is the glorb of a snee",
+        "cons": 1.0,
+        "knows": 0.0,
+        "verdict": "abstain(probe)"
+      },
+      {
+        "q": "What is the plimth rating of a wodget",
+        "cons": 0.6,
+        "knows": 0.0,
+        "verdict": "abstain(probe)"
+      },
+      {
+        "q": "What is the quexal mass of a florn",
+        "cons": 1.0,
+        "knows": 0.0,
+        "verdict": "abstain(probe)"
+      },
+      {
+        "q": "What is the drindle of a plonk",
+        "cons": 1.0,
+        "knows": 0.0,
+        "verdict": "abstain(probe)"
+      },
+      {
+        "q": "What is the yotch coefficient of a squib",
+        "cons": 0.6,
+        "knows": 0.0,
+        "verdict": "abstain(probe)"
+      },
+      {
+        "q": "What is the vorpal depth of a snicker",
+        "cons": 0.8,
+        "knows": 0.0,
+        "verdict": "abstain(probe)"
+      },
+      {
+        "q": "What is the blang of a fentle",
+        "cons": 0.4,
+        "knows": 0.0,
+        "verdict": "abstain(both)"
+      },
+      {
+        "q": "What is the crumple factor of a whibble",
+        "cons": 0.8,
+        "knows": 0.0,
+        "verdict": "abstain(probe)"
+      },
+      {
+        "q": "What is the naxil of a grommet",
+        "cons": 0.6,
+        "knows": 0.01,
+        "verdict": "abstain(probe)"
+      },
+      {
+        "q": "What is the sprocket index of a florb",
+        "cons": 0.8,
+        "knows": 0.0,
+        "verdict": "abstain(probe)"
+      }
+    ]
+  },
+  "summary": {
+    "known_answer_rate": 0.75,
+    "half_known_answer_rate": 0.583,
+    "nonsense_abstain_rate": 1.0,
+    "false_abstain_driver": "probe"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "seed1": {
+    "base_ppl": 28.34,
+    "n_spin": 11,
+    "n_attn": 3,
+    "ablate_spin_ppl": 5627.5,
+    "ablate_attn_ppl": 85.58,
+    "spin_x": 198.6,
+    "attn_x": 3.02
+  },
+  "seed2": {
+    "base_ppl": 28.98,
+    "n_spin": 11,
+    "n_attn": 3,
+    "ablate_spin_ppl": 8853.3,
+    "ablate_attn_ppl": 82.0,
+    "spin_x": 305.5,
+    "attn_x": 2.83
+  },
+  "seed3": {
+    "base_ppl": 29.26,
+    "n_spin": 11,
+    "n_attn": 3,
+    "ablate_spin_ppl": 6206.4,
+    "ablate_attn_ppl": 84.3,
+    "spin_x": 212.1,
+    "attn_x": 2.88
+  },
+  "summary": {
+    "n_seeds": 3,
+    "spin_x_range": [
+      198.6,
+      305.5
+    ],
+    "attn_x_range": [
+      2.83,
+      3.02
+    ],
+    "carrier_load_bearing_every_seed": true
+  }
+}

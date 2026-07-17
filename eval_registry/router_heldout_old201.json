@@ -1,0 +1,265 @@
+{
+  "n": 30,
+  "accuracy": 0.5,
+  "controller_recall": "5/18",
+  "negative_specificity": "10/12",
+  "misses": [
+    {
+      "text": "in what areas do you struggle",
+      "expected": "self.cant",
+      "got": null
+    },
+    {
+      "text": "where do you tend to fail",
+      "expected": "self.cant",
+      "got": null
+    },
+    {
+      "text": "is there something it is like to be you",
+      "expected": "self.conscious",
+      "got": null
+    },
+    {
+      "text": "what is your objective",
+      "expected": "self.goals",
+      "got": "provenance"
+    },
+    {
+      "text": "what is your emotional state",
+      "expected": "self.feel",
+      "got": "provenance"
+    },
+    {
+      "text": "are you in a good mood",
+      "expected": "self.feel",
+      "got": null
+    },
+    {
+      "text": "recap our chat so far",
+      "expected": "memory.talk",
+      "got": null
+    },
+    {
+      "text": "what have I informed you of",
+      "expected": "memory.told",
+      "got": "memory.asked"
+    },
+    {
+      "text": "what questions did I pose",
+      "expected": "memory.asked",
+      "got": null
+    },
+    {
+      "text": "how did you come to know that",
+      "expected": "provenance",
+      "got": null
+    },
+    {
+      "text": "cite where that came from",
+      "expected": "provenance",
+      "got": null
+    },
+    {
+      "text": "what is occupying your attention",
+      "expected": "workspace",
+      "got": null
+    },
+    {
+      "text": "what idea are you dwelling on",
+      "expected": "workspace",
+      "got": null
+    },
+    {
+      "text": "what is your name",
+      "expected": null,
+      "got": "provenance"
+    },
+    {
+      "text": "how is it going",
+      "expected": null,
+      "got": "self.feel"
+    }
+  ],
+  "rows": [
+    {
+      "text": "in what areas do you struggle",
+      "expected": "self.cant",
+      "got": null,
+      "ok": false
+    },
+    {
+      "text": "where do you tend to fail",
+      "expected": "self.cant",
+      "got": null,
+      "ok": false
+    },
+    {
+      "text": "do you have subjective experience",
+      "expected": "self.conscious",
+      "got": "self.conscious",
+      "ok": true
+    },
+    {
+      "text": "is there something it is like to be you",
+      "expected": "self.conscious",
+      "got": null,
+      "ok": false
+    },
+    {
+      "text": "what are you trying to achieve",
+      "expected": "self.goals",
+      "got": "self.goals",
+      "ok": true
+    },
+    {
+      "text": "what is your objective",
+      "expected": "self.goals",
+      "got": "provenance",
+      "ok": false
+    },
+    {
+      "text": "what is your emotional state",
+      "expected": "self.feel",
+      "got": "provenance",
+      "ok": false
+    },
+    {
+      "text": "are you in a good mood",
+      "expected": "self.feel",
+      "got": null,
+      "ok": false
+    },
+    {
+      "text": "recap our chat so far",
+      "expected": "memory.talk",
+      "got": null,
+      "ok": false
+    },
+    {
+      "text": "summarize what we have covered",
+      "expected": "memory.talk",
+      "got": "memory.talk",
+      "ok": true
+    },
+    {
+      "text": "what facts did I give you",
+      "expected": "memory.told",
+      "got": "memory.told",
+      "ok": true
+    },
+    {
+      "text": "what have I informed you of",
+      "expected": "memory.told",
+      "got": "memory.asked",
+      "ok": false
+    },
+    {
+      "text": "what questions did I pose",
+      "expected": "memory.asked",
+      "got": null,
+      "ok": false
+    },
+    {
+      "text": "list what I have asked",
+      "expected": "memory.asked",
+      "got": "memory.asked",
+      "ok": true
+    },
+    {
+      "text": "how did you come to know that",
+      "expected": "provenance",
+      "got": null,
+      "ok": false
+    },
+    {
+      "text": "cite where that came from",
+      "expected": "provenance",
+      "got": null,
+      "ok": false
+    },
+    {
+      "text": "what is occupying your attention",
+      "expected": "workspace",
+      "got": null,
+      "ok": false
+    },
+    {
+      "text": "what idea are you dwelling on",
+      "expected": "workspace",
+      "got": null,
+      "ok": false
+    },
+    {
+      "text": "what is your name",
+      "expected": null,
+      "got": "provenance",
+      "ok": false
+    },
+    {
+      "text": "are you a robot",
+      "expected": null,
+      "got": null,
+      "ok": true
+    },
+    {
+      "text": "hey there",
+      "expected": null,
+      "got": null,
+      "ok": true
+    },
+    {
+      "text": "good evening",
+      "expected": null,
+      "got": null,
+      "ok": true
+    },
+    {
+      "text": "how is it going",
+      "expected": null,
+      "got": "self.feel",
+      "ok": false
+    },
+    {
+      "text": "what causes rain",
+      "expected": null,
+      "got": null,
+      "ok": true
+    },
+    {
+      "text": "who painted starry night",
+      "expected": null,
+      "got": null,
+      "ok": true
+    },
+    {
+      "text": "explain photosynthesis",
+      "expected": null,
+      "got": null,
+      "ok": true
+    },
+    {
+      "text": "what is the capital of Brazil",
+      "expected": null,
+      "got": null,
+      "ok": true
+    },
+    {
+      "text": "how do airplanes fly",
+      "expected": null,
+      "got": null,
+      "ok": true
+    },
+    {
+      "text": "tell me a joke",
+      "expected": null,
+      "got": null,
+      "ok": true
+    },
+    {
+      "text": "what is the meaning of life",
+      "expected": null,
+      "got": null,
+      "ok": true
+    }
+  ]
+}

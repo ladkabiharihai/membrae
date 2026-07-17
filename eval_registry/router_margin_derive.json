@@ -1,0 +1,26 @@
+{
+  "paired_std": {
+    "margin": 0.251,
+    "acc": 0.4,
+    "ctrl_recall": "0/18",
+    "neg_spec": "12/12",
+    "spec_rate": 1.0,
+    "recall_rate": 0.0
+  },
+  "cohesion_gap": {
+    "margin": 0.5441,
+    "acc": 0.4,
+    "ctrl_recall": "0/18",
+    "neg_spec": "12/12",
+    "spec_rate": 1.0,
+    "recall_rate": 0.0
+  },
+  "half_cohesion": {
+    "margin": 0.272,
+    "acc": 0.4,
+    "ctrl_recall": "0/18",
+    "neg_spec": "12/12",
+    "spec_rate": 1.0,
+    "recall_rate": 0.0
+  }
+}

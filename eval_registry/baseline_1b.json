@@ -1,0 +1,21 @@
+{
+  "label": "baseline_1b",
+  "params_M": 1022,
+  "abstain_threshold": 5.19,
+  "match_threshold": 0.51,
+  "ppl": {
+    "W1": 20.72,
+    "W8": 20.25,
+    "W32": 18.69
+  },
+  "multihop": {
+    "1hop": "3/4",
+    "2hop": "1/3",
+    "3hop": "1/2"
+  },
+  "calibration": {
+    "known_sem_entropy": -0.0,
+    "nonsense_sem_entropy": -0.0,
+    "separation": 0.0
+  }
+}
