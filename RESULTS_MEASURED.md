@@ -258,6 +258,25 @@ small-scale phenomenon that is essentially gone by 100M and is parity by 284M. C
 spin-dominant is *competitive* at scale (and does not collapse — contrast the 1.4B drift), NOT superior.
 The carrier remains the load-bearing computation by ablation regardless.
 
+## 18. MULTI-SEED CAUSAL ABLATION — the CENTRAL claim is seed-robust (`multiseed_ablate.py`)
+The paper's centerpiece (the carrier is the load-bearing computation) was single-seed at each size. The 100M
+sweep left 3 independently-trained spin models and ablation is inference-only, so seed-robustness is cheap.
+Ablate ALL spin carriers (zero the gate, keep the MLPs) vs ALL attention sublayers, per seed:
+
+| seed | base ppl | ablate SPIN | ablate ATTN |
+|---|---|---|---|
+| 1 | 28.07 | 5722 (**203.9x**) | 84.0 (2.99x) |
+| 3 | 29.32 | 6047 (**206.3x**) | 82.3 (2.81x) |
+
+**Verdict: the load-bearing property reproduces across independently-trained seeds.** Spin-ablation
+multipliers 203.9x vs 206.3x -- a **1.2% spread** across seeds -- and attention 2.8-3.0x in both, i.e. the
+**~70x carrier/attention gap is essentially identical in every seed**. This answers the "single-seed" concern
+on the CENTRAL claim (the earlier multi-seed, #17, only covered the spin-vs-attention *comparison*).
+
+Seed 2 pending: its checkpoint transfer to the laptop stalled (throttled link). All 3 checkpoints are already
+ON the H100 and the script is committed, so n=3 is one command there:
+`git pull && python3 multiseed_ablate.py 1 2 3` (inference-only, ~2 min). Numbers above are n=2.
+
 ## What these numbers changed
 - **Paper:** ablation multipliers reframed to order-of-magnitude + instability note (C4); T1.8 disclosed in
   a new mechanism subsection and the multi-hop limitation reframed from "just undertrained" to a
