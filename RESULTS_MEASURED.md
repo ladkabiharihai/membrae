@@ -217,6 +217,47 @@ measured). A from-scratch 284M coupled-vs-base run is not laptop-feasible (hours
 as a from-scratch run. Honest status of the coupling: **still undecided** (frozen-1B probe neutral, laptop
 warm-start inconclusive) -- the from-scratch 284M test on the H100 is the real decider.
 
+## 16. Coupling Stage A — DECIDED: an honest NEGATIVE (from-scratch 284M, H100)
+Ran exactly the Stage A design from #15 / H100_TODO: both arms FROM SCRATCH at 284M, `--no-grow`, matched
+budget (100K steps, ~1.6B tokens) and matched explicit lr (6e-3); the arms differ ONLY in the coupling
+(`carrier=spin_dominant` control vs `spin_dominant_coupled`).
+
+| | training best val ppl | clean harness (4 val-seeds x 30 it) |
+|---|---|---|
+| control (base spin, 284M) | **23.87** | **24.87** |
+| coupled (284M) | 25.51 | 26.65 |
+
+**Verdict: NEGATIVE — the coupling is 7.2% WORSE** (gap 1.78 ppl, far outside the ~0.7 ppl checkpoint noise
+that made the crux a tie). Letting the slow carrier modulate the fast attention pathway does not help; it
+hurts. This is the second independent measurement against it (the frozen-1B probe was neutral: +0.04).
+**Per the pre-registered criterion, STAGE B (scale to 1B) IS CANCELLED** — no 1B compute spent on a dead
+idea. Report as an honest negative; keep the parallel design.
+
+## 17. Multi-seed at 100M — PARITY; the 37M spin win does NOT survive scale
+Param-matched pair at ~100M (spin d=640 h=10 L=14 mm=6 = 109.5M; attention-only d=640 h=10 L=15 mm=6 =
+111.6M, +1.9%), 3 training seeds each (spin+attn of a seed trained as a parallel pair = identical GPU
+conditions), matched tokens (70K steps, ~1.15B, ~10.5 tok/param) and matched explicit lr 3e-3 for both
+arms (an explicit matched lr also dodges the unreliable auto-derive, which produced 1.78e-5 for one arm).
+
+Clean harness (4 val-seeds x 30 it x bs24, big_valid):
+
+| seed | spin | attn | paired delta (attn-spin) |
+|---|---|---|---|
+| 1 | 28.12 | 28.57 | +0.45 |
+| 2 | 28.99 | 29.22 | +0.23 |
+| 3 | 29.29 | 29.38 | +0.09 |
+| **mean** | **28.80** | **29.06** | **+0.255 ppl -> spin +0.88%** |
+
+**Verdict: PARITY.** Spin is ahead in **3/3** paired seeds (direction is consistent — spin is never worse),
+but the effect is **+0.88% (0.26 ppl)**, the unpaired ranges **overlap** (spin worst 29.29 > attn best 28.57),
+a paired t-test at n=3 gives **p ~ 0.14 (not significant)**, and the per-seed deltas **shrink** (0.45 -> 0.23
+-> 0.09; seed 3 is a dead heat).
+
+**The scale story (honest):** 37M ~21% -> **100M ~0.9% (n.s.)** -> 284M tie (#14). The spin advantage is a
+small-scale phenomenon that is essentially gone by 100M and is parity by 284M. Consistent with #14: claim
+spin-dominant is *competitive* at scale (and does not collapse — contrast the 1.4B drift), NOT superior.
+The carrier remains the load-bearing computation by ablation regardless.
+
 ## What these numbers changed
 - **Paper:** ablation multipliers reframed to order-of-magnitude + instability note (C4); T1.8 disclosed in
   a new mechanism subsection and the multi-hop limitation reframed from "just undertrained" to a

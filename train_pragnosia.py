@@ -13,7 +13,8 @@ import s6_hybrid as H
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 DEVICE = H.DEVICE
-CFG = json.load(open(os.environ.get("CONFIG", "pragnosia.json")))   # CONFIG=pragnosia_baseline.json for the carrier=none baseline
+CONFIG_PATH = os.environ.get("CONFIG", "pragnosia.json")            # CONFIG=pragnosia_baseline.json for the carrier=none baseline
+CFG = json.load(open(CONFIG_PATH))                                  # grow-writeback goes back to THIS file, not a hardcoded one
 H.VOC, H.L = CFG["vocab"], CFG["ctx"]
 VOC = CFG["vocab"]
 # LONG-CONTEXT TRAINING: >1 feeds each sample as W windows of ctx, carrying the carrier state across
@@ -158,7 +159,8 @@ def _sample_W(it, steps, max_W):
     return min(max_W, 1 << random.randint(0, int(reach)))          # log-uniform over [1 .. 2^reach]
 
 def main(steps, lr, resume, override_bs, grow_enabled):
-    torch.manual_seed(0); np.random.seed(0)
+    _seed = int(os.environ.get("SEED", "0"))          # env-configurable -> multi-seed runs
+    torch.manual_seed(_seed); np.random.seed(_seed)
     cfg = autotune()
     td, vd = H.load(CFG["train_bin"]), H.load(CFG["valid_bin"])
     m = H.SpinAttentionLM(VOC, CFG["d"], CFG["heads"], CFG["layers"], mlp_mult=CFG.get("mlp_mult", 4),
@@ -446,7 +448,9 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                         torch.cuda.empty_cache()
                         m = best_c; CFG["layers"] = len(m.blocks); CFG["mlp_mult"] = m.mlp_mult
                         if LONG_BPTT: m.grad_checkpoint = True            # grown model: keep ckpt for full-BPTT long-ctx
-                        json.dump(CFG, open("pragnosia.json", "w"), indent=2)
+                        json.dump(CFG, open(CONFIG_PATH, "w"), indent=2)   # persist grown arch to the config THIS run
+                        #   used -- a hardcoded "pragnosia.json" here silently clobbered the canonical 1B config
+                        #   when any run with CONFIG=<other>.json grew (observed: 1B d=768 overwritten with d=384).
                         bs, accum = best_nb, max(1, 64 // best_nb)
                         opt = _mkopt(m.parameters(), lr)
                         if id_seqs: id_opt = torch.optim.AdamW(m.parameters(), lr=id_lr, betas=(0.9, 0.95))
