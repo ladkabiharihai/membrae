@@ -263,19 +263,23 @@ The paper's centerpiece (the carrier is the load-bearing computation) was single
 sweep left 3 independently-trained spin models and ablation is inference-only, so seed-robustness is cheap.
 Ablate ALL spin carriers (zero the gate, keep the MLPs) vs ALL attention sublayers, per seed:
 
-| seed | base ppl | ablate SPIN | ablate ATTN |
-|---|---|---|---|
-| 1 | 28.07 | 5722 (**203.9x**) | 84.0 (2.99x) |
-| 3 | 29.32 | 6047 (**206.3x**) | 82.3 (2.81x) |
+**n=3 (all three seeds):**
 
-**Verdict: the load-bearing property reproduces across independently-trained seeds.** Spin-ablation
-multipliers 203.9x vs 206.3x -- a **1.2% spread** across seeds -- and attention 2.8-3.0x in both, i.e. the
-**~70x carrier/attention gap is essentially identical in every seed**. This answers the "single-seed" concern
-on the CENTRAL claim (the earlier multi-seed, #17, only covered the spin-vs-attention *comparison*).
+| seed | base ppl | ablate SPIN | ablate ATTN | carrier/attn gap |
+|---|---|---|---|---|
+| 1 | 28.34 | 5628 (198.6x) | 85.6 (3.02x) | 66x |
+| 2 | 28.98 | 8853 (**305.5x**) | 82.0 (2.83x) | 108x |
+| 3 | 29.26 | 6206 (212.1x) | 84.3 (2.88x) | 74x |
 
-Seed 2 pending: its checkpoint transfer to the laptop stalled (throttled link). All 3 checkpoints are already
-ON the H100 and the script is committed, so n=3 is one command there:
-`git pull && python3 multiseed_ablate.py 1 2 3` (inference-only, ~2 min). Numbers above are n=2.
+**Verdict: the load-bearing property reproduces in EVERY seed** -- carrier ablation costs **two orders of
+magnitude** more than attention ablation in all three (gap 66x / 108x / 74x). This answers the "single-seed"
+concern on the CENTRAL claim (#17's multi-seed only covered the spin-vs-attention *comparison*).
+
+**Honest correction:** an interim n=2 (seeds 1,3) showed 203.9x vs 206.3x and looked like a 1.2% spread --
+that was luck. With seed 2 at 305.5x the real spread is **198.6-305.5x (54%)**. So the *exact* spin multiplier
+is NOT stable across seeds, while **attention ablation is** (2.83-3.02x, 7%). This independently reinforces
+the #7 / C4 decision to report the **order-of-magnitude gap, not a precise multiplier** -- the multiplier is
+noisy across seeds just as it is across checkpoints. Claim the gap; never the exact number.
 
 ## What these numbers changed
 - **Paper:** ablation multipliers reframed to order-of-magnitude + instability note (C4); T1.8 disclosed in
