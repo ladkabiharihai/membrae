@@ -281,6 +281,20 @@ is NOT stable across seeds, while **attention ablation is** (2.83-3.02x, 7%). Th
 the #7 / C4 decision to report the **order-of-magnitude gap, not a precise multiplier** -- the multiplier is
 noisy across seeds just as it is across checkpoints. Claim the gap; never the exact number.
 
+## 19. Ablation on the CORRECTED (fair-lr) 284M — the lr bug moved the ppl, not the conclusion
+The paper had two 284M spin runs and did not distinguish them: the original (val ppl 24.54, ablation 306x)
+predates the lr-floor fix; the fair-lr re-run (20.92) is the crux model. Ablated the corrected model
+(`eval_registry/ablate_284m_fair.json`, inference-only):
+
+| 284M model | base | ablate SPIN | ablate ATTN | gap |
+|---|---|---|---|---|
+| original (pre-fix) | 25 | 7716 (306x) | 85 (3.4x) | 90x |
+| **fair-lr (crux model)** | 21.82 | 6838 (**313x**) | 100.4 (4.60x) | **68x** |
+
+**The load-bearing property is unaffected by the lr bug** — it reproduces on the corrected model (313x vs
+4.6x) and across 3 seeds at 100M (#18). The bug moved perplexity, not the conclusion. Paper now explains the
+two runs explicitly instead of quoting 24.54 and 20.92 for "the 284M model" without distinction.
+
 ## What these numbers changed
 - **Paper:** ablation multipliers reframed to order-of-magnitude + instability note (C4); T1.8 disclosed in
   a new mechanism subsection and the multi-hop limitation reframed from "just undertrained" to a
