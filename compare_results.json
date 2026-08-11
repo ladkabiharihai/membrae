@@ -54,5 +54,26 @@
     "arc_easy": 0.389,
     "arc_challenge": 0.257,
     "piqa": 0.671
+  },
+  "ours-508M": {
+    "lambada": 0.268,
+    "hellaswag": 0.292,
+    "arc_easy": 0.351,
+    "arc_challenge": 0.224,
+    "piqa": 0.623
+  },
+  "cerebras/Cerebras-GPT-590M (590M)": {
+    "lambada": 0.379,
+    "hellaswag": 0.294,
+    "arc_easy": 0.352,
+    "arc_challenge": 0.221,
+    "piqa": 0.628
+  },
+  "EleutherAI/pythia-410m (405M)": {
+    "lambada": 0.513,
+    "hellaswag": 0.374,
+    "arc_easy": 0.384,
+    "arc_challenge": 0.245,
+    "piqa": 0.662
   }
 }

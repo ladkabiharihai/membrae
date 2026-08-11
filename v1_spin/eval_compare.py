@@ -12,9 +12,9 @@ def load(name):
     if name == "ours":
         import s6_hybrid as H
         from tokenizers import Tokenizer
-        c = json.load(open("pragnosia.json")); H.VOC, H.L = c["vocab"], c["ctx"]
+        c = json.load(open(os.environ.get("OURS_CONFIG", "pragnosia.json"))); H.VOC, H.L = c["vocab"], c["ctx"]
         m = H.SpinAttentionLM(c["vocab"], c["d"], c["heads"], c["layers"], mlp_mult=c["mlp_mult"], carrier=c["carrier"]).to(DEV)
-        m.load_state_dict(torch.load("pragnosia_spin.pt", map_location="cpu", weights_only=True))
+        m.load_state_dict(torch.load(os.environ.get("OURS_CKPT", "pragnosia_spin.pt"), map_location="cpu", weights_only=True))
         m = m.bfloat16().eval(); tk = Tokenizer.from_file(c["tokenizer"])
         enc = lambda s: tk.encode(s).ids
         logp = lambda ids: m(torch.tensor([ids], device=DEV))[0].float().log_softmax(-1)

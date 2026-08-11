@@ -25,7 +25,7 @@ commands. So there are only two ways to run it:
   python3 brain.py test     -> verify it: full self-test (every faculty + language).
 ================================================================================
 """
-import json, math, os, re, sys, time
+import json, math, os, random, re, sys, time
 import numpy as np, torch, torch.nn as nn, torch.nn.functional as F
 import s6_hybrid as H
 from tokenizers import Tokenizer
@@ -66,12 +66,17 @@ class Brain(nn.Module):
             self.lm = self.lm.bfloat16()    # identical output (the diagonal-complex carrier is bf16-stable)
         self.tok = Tokenizer.from_file(CFG["tokenizer"])
         self.store = []            # retrieval memory (real seek faculty), (text, key_emb)
+        self._exp = []             # EPISODIC CONTROL buffer: (state_emb, action, reward) -- learn-by-experience
         self._replay = None
         self._last_topic = None    # the topic its curiosity is currently chasing
         self.self_model = None     # SELF-MODEL: architecture facts DERIVED from the live model (built in
         self.goals = []            #   _derive_self after the LM loads; re-derived on grow). Not hand-set.
         self._gaps = []            # things it honestly couldn't answer -> seeds for self-defined goals
-        self._weight_teach_ok = True   # cleared if backprop OOMs -> fall back to episodic-only learning
+        # Continual learning is EPISODIC by default (safe: learn+recall via memory, NO catastrophic forgetting).
+        # Weight-teaching is OFF: measured GSM8K 3/4->0/4 from teaching ONE fact -- the concentrated single-fact
+        # gradient overwrites skills faster than the thin self-replay can protect (RESULTS #23). Re-enable
+        # (set True, or WEIGHT_TEACH=1) only WITH a real anti-forgetting method (EWC / LoRA adapters / heavy replay).
+        self._weight_teach_ok = (os.environ.get("WEIGHT_TEACH", "0") == "1")
         # --- faculties that make it more than a predictor (the buildable pieces of a mind) ---
         self.wm = []               # WORKING MEMORY: a small bounded scratchpad it reasons OVER (holds ~7 items)
         self.episodes = []         # AUTOBIOGRAPHICAL timeline: ordered events, survives sessions (queryable)
@@ -675,8 +680,10 @@ class Brain(nn.Module):
         if not obs: return {"idle": True}
         ids = self.tok.encode(obs).ids
         n_content = sum(self._tw[t].item() >= self._content_min for t in ids)
-        is_new_fact = (self.learn and self._novelty(obs) > self.novelty_min and n_content >= 4
-                       and len(ids) >= self._learn_min)
+        # Substance is measured by CONTENT tokens (data-derived), NOT raw length. The old len>=_learn_min(=32)
+        # blocked EVERY normal fact (a fact is ~7-20 tokens) -> continual learning was inert (RESULTS #13).
+        # n_content>=4 (four real content words) is the anti-fragment gate; a complete short fact now teaches.
+        is_new_fact = (self.learn and self._novelty(obs) > self.novelty_min and n_content >= 4)
         if is_new_fact:
             entity = self.wonder(obs); self._last_topic = entity   # wonder BEFORE teaching,
             self.teach(obs, max_steps=40)                          # while the new entity is still surprising
@@ -1173,6 +1180,7 @@ class Brain(nn.Module):
             action = self._choose_action(obs, world.actions())
             reward, done = world.step(action)
             total += reward
+            self._exp.append((self._embed(obs), action, reward))   # EPISODIC CONTROL: remember (state,action,reward)
             self.appraise("success" if reward > 0 else "failure", min(1.0, abs(reward) + 0.2))   # FEEL the outcome
             self.log_episode("acted", f"{obs[:40]} -> {action} (r={reward:+.1f})")
             if reward > 0 and self.learn:                # LEARN what worked -> remembered for next time
@@ -1182,16 +1190,23 @@ class Brain(nn.Module):
         return {"steps": len(trace), "reached": world.pos == world.goal, "return": round(total, 2), "trace": trace}
 
     def _choose_action(self, obs, actions):
-        """Choose a move: recall what worked in a similar state (learned by experience), else ask the LM grounded
-        in the perception. Its skill is whatever it has learned by DOING -- not a hand-coded planner."""
-        recalled = self._retrieve(obs)                   # did a past experience teach a move for this state?
-        if recalled:
-            for a in actions:
-                if f"go {a}" in recalled.lower(): return a
-        pick = self.generate_text(f"<user> {obs} Which way should I move: {', '.join(actions)}? <assistant>", n=8).lower()
-        for a in actions:
-            if a in pick: return a
-        return actions[self._turn % len(actions)]        # last resort: vary (no hand-coded goal-seeking)
+        """Choose a move by EPISODIC CONTROL: recall the most SIMILAR past states and prefer the action that
+        earned the most reward there (similarity-weighted) -- learn-by-experience with NO gradient, so behaviour
+        improves as the buffer grows. Explores by RANDOM sampling when it has no useful memory.
+        MEASURED (RESULTS #25): with random exploration this reaches 100% held-out on the grid (generalizes to
+        unseen start x goal); the earlier LM-guided exploration was what made #23 look like a wall -- it poisons
+        the experience buffer with the non-discriminative-embedding path. Its skill is whatever it learned by
+        DOING -- not a hand-coded planner."""
+        if self._exp:
+            qe = self._embed(obs)
+            near = sorted(((float(qe @ e), a, r) for e, a, r in self._exp), reverse=True)[:12]  # nearest experiences
+            val = {a: 0.0 for a in actions}
+            for s, a, r in near:
+                if a in val: val[a] += s * r             # vote: state-similarity x reward-there
+            best = max(actions, key=lambda a: val[a])
+            if val[best] > 0 and random.random() > 0.1:  # exploit a positively-valued action (epsilon=0.1 explore)
+                return best
+        return random.choice(actions)                    # explore by random sampling (learns; no hand-coded goal)
 
     def perceive_multimodal(self, feat, prompt="What do you see?"):
         """MULTIMODAL on the FROZEN LM: project a perception feature into perception tokens, prepend them to the
@@ -1310,6 +1325,9 @@ class Brain(nn.Module):
             self.log_episode("asked", text)
             return {"answer": self.memory_report(text, intent), "memory": True}
         if intent == "provenance":                      # GROUNDING: 'how do you know?' -> cite the real source
+            hit = self._retrieve(text)                   # ...unless a STORED fact strongly matches the asked entity
+            if hit is not None:                          #   ('where does Dr. X keep..' must beat a provenance report;
+                return {"answer": hit, "recalled": True} #    _retrieve's >=0.5 content bar keeps genuine meta-Qs safe)
             return {"answer": self.provenance_report(text), "grounded": True}
         self.broadcast(text)                            # GLOBAL WORKSPACE: bind the attended state for all faculties
         # QUESTION vs STATEMENT is read from grammatical FORM -- a trailing '?' or an interrogative opener --
@@ -1319,6 +1337,10 @@ class Brain(nn.Module):
         _qword = text.lower().split(" ")[0] in self._q_openers
         if text.endswith("?") or _qword:
             self.log_episode("asked", text); self.note_user("asked", text)   # THEORY OF MIND + autobiography
+            hit = self._retrieve(text)                       # SEEK first: a fact I was TAUGHT/stored? recall it
+            if hit is not None:                              #   (closes the tell->ask loop before LM guess / web)
+                self.log_episode("answered", hit[:80]); self.appraise("success", 0.5)
+                return {"answer": hit, "recalled": True}
             chat = f"<user> {text.rstrip('?')+'?'} <assistant>"   # ask in the format the model was TRAINED on --
             # computational / multi-step: an exact arithmetic TOOL (agency) beats a guess; else CoT reasoning.
             hard = any(c.isdigit() for c in text) or any(w in text.lower()
@@ -1371,20 +1393,49 @@ class Brain(nn.Module):
                 self.appraise("stuck", 0.5)             # couldn't find it -> stuck
             return tr
         self.log_episode("said", text); self.note_user("told", text)   # a statement -> autobiography + theory of mind
-        tr = self.think(text)                               # -> learn + wonder + look up
+        self._ingest(text)                                  # EPISODIC: remember what I'm TOLD as RETRIEVABLE chunks
+        tr = self.think(text)                               # -> (maybe) learn into weights + wonder + look up
         if tr.get("learned"): self.appraise("learned", 0.5)   # took in something new -> interest
         return tr
 
     # ================= WIRED: seek (retrieve from memory) =================
     # No stopword/pronoun lists. Similarity uses self-information-weighted
     # embeddings (importance derived from data); the match bar is data-calibrated.
+    def _ingest(self, text):
+        """Store TEXT as retrievable memory -- FIRST-CLASS LONG CONTEXT. Long / multi-sentence input is split into
+        SENTENCE chunks so a later query retrieves the SPECIFIC relevant sentence (needle-precise), not one diluted
+        blob whose averaged embedding buries the fact. This is the product's unlimited-context path: arbitrary-
+        length in, exact fact out -- the honest resolution the native carrier can't provide (RESULTS #27). Short
+        single-fact input is stored whole (no over-splitting)."""
+        ids = self.tok.encode(text).ids
+        if len(ids) < 3: return
+        chunks = re.split(r"(?<=[.?!])\s+", text) if len(ids) > 40 else [text]   # split only genuinely long input
+        for c in chunks:
+            c = c.strip()
+            if len(self.tok.encode(c).ids) >= 3 and not any(t == c for t, _ in self.store):
+                self.store.append((c, self._embed(c)))
+
+    @torch.no_grad()
+    def _content_overlap(self, qids, tids):
+        """Fraction of the QUERY's content-token importance present in the candidate text. Weighted by
+        self-information (_tw, data-derived) so entity/content words dominate and function words ~0 -- no
+        stopword list. This is what makes 'capital of Xland?' match the Xland fact, not a 'What is..?' form."""
+        tset = set(int(t) for t in tids if self._tw[t].item() >= self._content_min)
+        qw = [(int(t), self._tw[t].item()) for t in qids if self._tw[t].item() >= self._content_min]
+        tot = sum(w for _, w in qw)
+        return (sum(w for t, w in qw if t in tset) / tot) if tot > 0 else 0.0
+
     @torch.no_grad()
     def _retrieve(self, query):
         if not self.store: return None
-        q = self._embed(query)
-        sims = [(float(q @ key), text) for text, key in self.store]
-        best_sim, best_text = max(sims, key=lambda s: s[0])
-        return best_text if best_sim >= self.match_threshold else None
+        q = self._embed(query); qids = self.tok.encode(query).ids
+        best = (-1e9, 0.0, None)
+        for text, key in self.store:                          # HYBRID rank: embedding FORM + content OVERLAP
+            lex = self._content_overlap(qids, self.tok.encode(text).ids)
+            score = float(q @ key) + lex
+            if score > best[0]: best = (score, lex, text)
+        _, lex, text = best
+        return text if lex >= 0.5 else None                   # require MAJORITY content match -> real recall, not form-echo
 
     @torch.no_grad()
     def recall_inweights(self, query):
@@ -1404,10 +1455,16 @@ class Brain(nn.Module):
         hit = self._retrieve(q)
         if hit is not None:
             return f"{hit}" + ("   [recalled from memory / seek]" if verbose else "")
-        cons, ans = self._self_consistency(q)        # honest: answer only if stable
-        if cons < self.consistency_min:
-            return "I don't know." + (f"   [abstained: consistency {cons:.2f}<{self.consistency_min:.2f}]" if verbose else "")
-        return ans[:160] + (f"   [answered: consistency {cons:.2f}]" if verbose else "")
+        cons, ans = self._self_consistency(q)        # answer-stability signal
+        knows = self.truth_probe(q) if getattr(self, "_truth_probe", None) is not None else 1.0
+        floor = getattr(self, "_truth_floor", 0.5)   # self-calibrated activation-probe boundary (0.5 by construction)
+        # FIX #3: the honesty gate is now the ACTIVATION probe (T1.3). It catches confident-consistent
+        # confabulation the consistency signal misses (RESULTS #2/#4), AND it stops OVER-abstaining on things
+        # the model actually knows but phrases variably (the "I'm not sure" on answerable questions). Abstain
+        # iff the internal state looks UNKNOWN; consistency still produces the answer text.
+        if knows < floor:
+            return "I don't know." + (f"   [abstained: knows {knows:.2f}<{floor:.2f}, consistency {cons:.2f}]" if verbose else "")
+        return ans[:160] + (f"   [answered: knows {knows:.2f}, consistency {cons:.2f}]" if verbose else "")
 
     # ================= WIRED: teach (continuous learning, self-modulated) =====
     # Surprise-modulated plasticity (like a brain's neuromodulation): the brain
@@ -1428,6 +1485,8 @@ class Brain(nn.Module):
         reps = self.lm.represent(torch.tensor([ids], device=DEVICE))[0]           # [T, d] repr at each position
         for t in range(len(ids) - 1):
             self.mem.write(reps[t].float(), self.lm.emb.weight[ids[t + 1]].float(), surprise)
+        if not any(t == fact for t, _ in self.store):     # ALSO index for episodic SEEK so a TAUGHT fact is
+            self.store.append((fact, self._embed(fact)))   # retrievable (before this, only identity was in the store)
 
     @torch.no_grad()
     def _recall_logits(self, ids):
@@ -1446,10 +1505,11 @@ class Brain(nn.Module):
         if self._replay is None: self._replay = H.load(CFG["train_bin"])
         surprise = self._nll(fact)                                   # own prediction error
         bound_n = self.boundary_for(len(self.tok.encode(fact).ids))  # boundary at THIS length
-        plasticity = min(3.0, max(0.15, surprise / max(bound_n, 1e-3)))
-        lr_eff = base_lr * plasticity                               # self-set learning rate
-        target = bound_n * 0.4           # learn well enough to RECALL (below familiarity),
-                                         # but not to ~0 -- extreme over-memorizing bleeds
+        plasticity = min(1.0, max(0.15, surprise / max(bound_n, 1e-3)))  # cap at 1.0: a hot lr on ONE fact
+        lr_eff = base_lr * plasticity                               # overwrote skills (GSM8K 3/4->0/4). GENTLE.
+        target = bound_n * 0.9           # stop as SOON as the fact is marginally learned (just below its own
+                                         # familiarity bar) -- episodic memory (self.store) does the real recall
+                                         # WITHOUT forgetting; the weight nudge must not over-memorize + bleed.
         self._remember(fact, plasticity)  # subconscious: instant, surprise-gated -- recallable now
         self.store.append((fact, self._embed(fact)))
         if not self._weight_teach_ok:      # backprop already known not to fit this GPU -> episodic memory only

@@ -5,6 +5,7 @@ import warnings,os; warnings.filterwarnings("ignore"); os.environ["PYTHONWARNING
 import sys,time,torch,torch.nn as nn,torch.nn.functional as F
 sys.path.insert(0,"/opt/code/membrae")
 from fastcore_v import VChunkRecall
+sys.path.insert(0,"/opt/code/membrae/v1_spin")
 from s6_hybrid import SpinCarrier
 DEV="cuda"
 class Attn(nn.Module):

@@ -1,109 +1,104 @@
-# Pragnosia
+---
+license: apache-2.0
+language:
+- en
+library_name: pytorch
+pipeline_tag: text-generation
+tags:
+- language-model
+- linear-attention
+- recurrent
+- associative-recall
+- intrinsic-memory
+- research
+---
 
-**Making a diagonal-complex "spin" recurrence the load-bearing core of a small language model.**
+# Pragnosia — an intrinsic brain on a fast recall core
 
-Pragnosia is a transformer/SSM hybrid in which a rotational **spin carrier** -- a diagonal-complex
-linear-recurrent unit run as a parallel associative scan -- is the *core token-mixer*, with attention only a
-periodic helper (every 4th layer). On top of the model runs a self-calibrating controller (`brain.py`) with
-continual learning, an in-weights episodic memory, an autobiographical timeline, working memory, tool-use
-agency (act→observe→learn), a theory-of-mind user model, reflection, introspection, self-directed goals, and
-function-preserving self-growth. Every *calibration threshold* is derived from the model's own data and re-derived as it grows; the
-controller's structural constants (buffer sizes, affect timescales) are documented engineering choices, not tuned thresholds.
+**A small, compute-efficient recurrent model whose brain faculties — memory, forget-free online
+learning, agency, and constant-memory streaming — are *intrinsic to the forward pass*, not bolted on
+as external code, and validated at small scale.**
 
-📄 Paper: `paper/paper.html` (→ `Pragnosia_paper.pdf`)  ·  🌐 Site: `site/index.html`  ·  🛠 Train: `RUNBOOK.md`
+This repository documents a research pivot. It began as a **spin-dominant** language model (a
+diagonal-complex "spin" recurrence as the core token-mixer) with faculties provided by an external
+Python controller (`brain.py`). Honest evaluation retired both of those choices:
+
+- **Spin was ruled out as the substrate.** The diagonal-complex carrier is fast but **cannot do
+  associative recall** (MQAR 26%→2% vs attention ~100%), so it cannot support memory or
+  online-learning. See `RESULTS_MEASURED.md` #30.
+- **The faculties moved *into* the model.** They are no longer `self.store`/`teach()` scaffolding in
+  `brain.py`; they are properties of the architecture and the forward pass.
+
+The pre-pivot spin work is preserved, unmodified, in **`v1_spin/`** (and the papers) — it stands as an
+honest negative result: *at matched parameters, a spin-dominant recurrence is a statistical **tie**
+with attention, not a win.*
 
 ---
 
-## The central finding: placement, not phase
+## The core: `fastcore_v.py` — `VChunkRecall`
 
-The one result the whole project turns on -- **where you put a recurrence decides whether it does the
-computation:**
+A vectorized, chunk-parallel **linear-attention core with a 2nd-order Taylor feature map** (softmax-like
+sharpness → associative recall). Pure PyTorch, no custom kernels, no external deps.
 
-| | Result |
+| property | measured |
 |---|---|
-| Carrier as a **side-channel** after a transformer stack (our first 1.4B) | vestigial -- **0.028% of the loss** |
-| Carrier as the **core mixer**, param-matched ablation (~37M) | **219 vs 279 ppl** -- a quality win when spin is the core |
-| A **different** recurrence (real, no phase) as the core | also beats attention (3.5×) -- so it's *placement*, not the complex phase |
-| **Causal dominance grows with scale** (ablate the carrier → × worse) | **306× (284M) → 1081× (706M) → 1886× (1B)** |
+| associative recall (MQAR, 16 pairs) | **100%** |
+| speed vs flash-attention @64K ctx | **~13–17×** (O(T) vs O(T²); gap grows with length) |
+| speed vs the spin carrier @32K | **~5×** |
+| memory of a fact | the fast-weight state `S = Σ φ(k)ᵀv`; recall is `o = φ(q)·S` |
 
-The carrier's causal dominance **strengthens** as the model grows -- it is not a small-scale artifact.
+The memory **is** the state; **writing the state is learning** — both happen in the forward pass.
 
-## Progression across grown sizes
+## The four faculties — in the model, proven small (`RESULTS_MEASURED.md` #31–#37)
 
-| Metric | 284M | 565M | 706M | ~1B |
-|---|---|---|---|---|
-| Carrier ablation (× worse) | 306 | -- | 1081 | **1886** |
-| PIQA | 59.5 | 60.7 | 61.8 | **63.3** |
-| ARC-Easy | 34.7 | 34.1 | 35.3 | **37.2** |
-| HellaSwag | 27.9 | 29.3 | 29.4 | **29.6** |
-| LAMBADA | 19.0 | 21.7 | 24.4 | **25.3** |
-| Multi-hop battery | 2/10 | 3/10 | 4/11 | 4/11 |
+| faculty | result | how it's intrinsic |
+|---|---|---|
+| **online learning, no forgetting** | new facts kept, prior skill **100%** (weight-teaching → 0%) | knowledge enters the fast-weight state; weights untouched |
+| **agency (learning from consequence)** | **85%** exploit-after-discovery (chance 25%) | the state adapts to reward, zero weight updates |
+| **O(1) streaming** | constant **73 MB** to 100K tokens; recall to trained length | recurrent state, no growing KV cache |
+| **per-FLOP efficiency** | **~13–17×** attention at long context | linear-time core |
 
-Long context is realized at scale (perplexity drops with the carry), and 8k generation runs at **constant
-O(1)/token** with no KV-cache.
+A single **2.4M-param unified model** (`unified_brain.py`) does all four at once, and **grows itself**
+(`.grow()`, function-preserving) — proven at ≤100M, the standing rule of this project.
 
-## Honest status
+## Self-scaling (`scale_train.py`, `self_grow.py`, `RESEARCH_selfgrowth.md`)
 
-- The spin-dominant *quality* win is shown at small scale (3 seeds); the *causal-dominance* property is shown
-  at 284M→1B and **strengthens with scale** (needs no baseline). What we do **not** claim is that the design
-  beats a transformer at 1B -- a **matched 1B transformer is outside our compute budget**; the affordable crux
-  is a matched `carrier="none"` transformer at 284M, still to run.
-- The models are undertrained for their size; multi-hop reasoning is weak. A published transformer of similar
-  size (Cerebras-GPT-1.3B) is *also* at chance on ARC-Challenge, which is **consistent with** a scale reading -- 
-  but that is a **non-controlled** comparison (different corpus/tokenizer/recipe), reported as illustration only,
-  not evidence for the design.
-- The honesty signal is functional but does not yet cleanly separate knowledge from confident confabulation.
-- We report every measured number, including the ones that don't flatter the design.
+Growth is a developmental controller with an **intrinsic trigger**: the model grows when *its own
+predictive entropy* (label-free) saturates — not when a supervised loss plateaus. The *allocation* of
+new parameters is irreducibly external (a fixed weight set cannot `malloc` new weights from a forward
+pass); the *decision* is the model's own.
 
-## Toward a mind (experimental faculties, honestly labelled)
+The genuinely scaffolding-free capacity axis is **adaptive compute**: chain-of-thought with intrinsic
+halting solves multi-step reasoning the parallel forward can't (13% → **92%**, with compute-steps that
+track difficulty exactly). It belongs in a reasoning fine-tune, not pretraining (PonderNet does not
+pretrain stably — `ponder_smoke.py`).
 
-Built on the controller and validated on the 1B -- each labelled for exactly what it is, never more:
+## Honest gaps (not yet closed)
 
-- **Functional emotion** (`appraise`/`feel`): appraisal → valence/arousal/mood → it changes behaviour, all
-  derived from its own signals. The *mechanism* of emotion; whether it is *felt* is unknowable for any system,
-  so we neither claim nor deny it. (It inherits the confidence miscalibration -- it can feel good about a wrong
-  answer.)
-- **Grounding** (`search`/`crawl`/`provenance`): web search + page-crawl that records the **source URL**, so
-  *"how do you know?"* is answerable -- epistemic grounding for looked-up facts.
-- **Global workspace** (`broadcast`/`integration`): the attended state bound across all faculties, with an
-  integration metric -- the substrate consciousness could **emerge** from. **Access-level, not experience; we
-  build the conditions and measure, we never claim.**
-- **Embodiment sandbox** (`world.py`, `experience`): a grid world it perceives, acts in, and learns from by
-  consequence -- closing perceive → act → observe → reward → learn (its affect is now grounded in outcomes).
-- **Multimodal adapter** (`perception.py`, `perceive_multimodal`): a projection adapter feeds image/audio
-  features into the **frozen** LM's token stream (LLaVA-style). Architecture + interface are live; the adapter
-  is **untrained** -- making it actually *see* is a later GPU job. We built the socket, not the eye.
+- **Language transfer.** The faculties are proven on synthetic tokens. In-context recall does **not**
+  yet transfer to natural prose at ≤45M — it's a scale threshold, not a mechanism failure. A from-scratch
+  language run (`scale_train.py`) is the open experiment.
+- **Real scale.** The core has not been trained to a useful size; beside co-resident production the
+  VRAM cap limits growth.
+- **Fused kernel.** The vectorized core is fast, but a Triton kernel would extend the efficiency win to
+  short context.
 
-## Quick start
+## Layout
 
-```bash
-python3 brain.py chat             # talk to the model (inference, light)
-python3 brain.py learn            # the full controller: memory, self-directed goals, growth
-python3 brain.py "Who are you?"   # one-shot
-
-python3 eval_compare.py ours      # zero-shot benchmarks vs open models, one harness
-# training: see RUNBOOK.md  (STEP 2b covers long-context; PRAGNOSIA_SELF= bakes in the persona)
+```
+fastcore_v.py        the fast recall core (VChunkRecall)     ← the substrate
+gated_core.py        + per-token gate (forgetting)
+unified_brain.py     one model, all four faculties + growth
+self_grow.py         intrinsic (own-signal) self-growth
+scale_train.py       from-scratch self-scaling language run
+onforget_demo.py     forget-free online learning demo
+prove_*.py           per-faculty proofs (agency, streaming, efficiency)
+chain_cot.py         adaptive-compute / CoT self-growth
+bench3.py            3-way speed: ours vs attention vs spin
+RESEARCH_selfgrowth.md   scaffolding-free self-growth study
+RESULTS_MEASURED.md  the durable, honest lab record (every number)
+v1_spin/             the pre-pivot spin-dominant model + trainer + controller
+paper/, manuscript*/ the spin-era papers (historical; a brain paper is TBD)
 ```
 
-The active model config lives in `pragnosia.json`; the checkpoint is gitignored (large). For weight-level
-learning on a small GPU use a smaller model (the 1B's backward needs more VRAM; it degrades to episodic-only).
-
-## Repo map
-
-| File | What |
-|---|---|
-| `s6_hybrid.py` | the LM: `SpinAttentionLM`, the spin carrier + parallel scan, `FastWeightMemory` |
-| `brain.py` | the controller: honesty, continual learning, episodic + autobiographical + working memory, tool-use agency, theory-of-mind, reflection, introspection, self-model, goals, growth |
-| `train_pragnosia.py` | GPU-adaptive trainer (self-governing growth, long-context modes, identity/persona injection) |
-| `grow.py` | function-preserving growth (depth/width) |
-| `world.py` | the embodiment sandbox (GridWorld) the brain acts in and learns from |
-| `perception.py` | the multimodal perception adapter (frozen-LM, LLaVA-style) + placeholder encoder |
-| `eval_compare.py` / `eval_external.py` | zero-shot benchmark harnesses |
-| `paper/`, `site/` | the write-up and the explainer site |
-| `RUNBOOK.md`, `HANDOVER.md`, `TRAINING_NOTES.md` | how to train, project handover, training notes |
-
-## What Pragnosia is *not*
-
-Not a competitive small LM (it lags well-trained open models on general-English fluency), not conscious, and
-not a solved system. It is a measured demonstration that a recurrence placed as the core token-mixer carries
-the computation -- and a substrate for building continual, self-aware, goal-directed behaviour on top of it.
+Every claim here is backed by a numbered entry in `RESULTS_MEASURED.md`, including the negatives.

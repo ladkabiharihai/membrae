@@ -9,5 +9,5 @@
   "tokenizer": "data/bpe.json",
   "train_bin": "window2_train",
   "valid_bin": "big_valid",
-  "ckpt": "pragnosia_spin.pt"
+  "ckpt": "pragnosia_brain.pt"
 }
