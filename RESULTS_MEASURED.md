@@ -788,3 +788,78 @@ change that makes the live `experience()` loop actually learn. Prod-safe run: CP
 - **Honesty:** over-abstention critique revised by measurement — the gate is well-calibrated; residual
   false-abstain is a generation-consistency issue, linking to the SFT work (C3 → C7).
 - **Crux:** matched attention-only baseline is one command away (`run_crux_baseline.sh`, C6).
+
+## 39. 3-WAY SPEED: ours vs transformer vs spin (`bench3.py`)
+Matched d=512, 2 layers, fwd+bwd tok/s (measured under concurrent training -> ratios are the honest part):
+| seqlen | attention | spin | VChunkRecall | vs attn | vs spin |
+|---|---|---|---|---|---|
+| 512   | 219K | 41K  | 93K  | 0.4x | 2.3x |
+| 2048  | 308K | 99K  | 325K | 1.1x | 3.3x |
+| 8192  | 159K | 137K | 632K | 4.0x | 4.6x |
+| 32768 | 52K  | 129K | 669K | 13.0x | 5.2x |
+Crossover vs attention ~2K; then ours pulls away (4x@8K, 13x@32K, gap GROWS -- attention throughput collapses
+O(T^2) 308K->52K while ours rises/flattens O(T) 325K->669K). Ours beats spin at EVERY length (2.3-5.2x); spin
+itself only beats attention at very long ctx. Short-ctx (<=1K) attention's fused kernel wins (0.4x) -- a Triton
+kernel would close that, but long-ctx/streaming is where a brain lives. Verdict: for the brain workload our core
+is decisively fastest (~13x transformer, ~5x spin @32K).
+
+## 40. Self-growth prototypes A/B/C compared (`selfgrow_proto.py`, `RESEARCH_selfgrowth.md`)
+Tested the 3 scaffolding-free self-growth approaches on ONE variable-hop lookup task (harder h = more capacity):
+| approach | params | overall | hard(h>=3) | own capacity-signal vs difficulty |
+|---|---|---|---|---|
+| baseline fixed | 0.4M | 13% | 15% | - |
+| A PonderNet halting | 0.2M | 13% | 17% | RISES h1=1.54->h4=1.59 (self-allocates) |
+| B MoE routing | 1.1M | 12% | 15% | FLAT 1.00 (router collapsed to 1 expert) |
+| C hypernet | 1.5M | 13% | 15% | none |
+FINDING: only **A (adaptive halting)** delivers scaffolding-free self-allocation -- expected compute-steps rise
+monotonically with difficulty, NO external schedule, fewest params, best hard-acc. B collapsed (needs a
+load-balance loss = more scaffolding); C fragile, no gain. Matches the research memo: the honest working form of
+"the model grows itself" is ADAPTIVE COMPUTE (decide own depth), not param recruitment. CAVEAT: absolute acc low
+(~13%) -- variable-hop composition is hard for this core (known multi-hop limit); this compares the MECHANISM, not
+task mastery. A's rise is real but modest at tiny scale. NEXT if pursued: scale A (weight-tied + PonderNet) on an
+easier capacity task to show acc gain + stronger halt-vs-difficulty; combine A (intrinsic depth) with a
+surprise-triggered metabolic param-grow.
+
+## 41. THE FIX for 13%: chain-of-thought + intrinsic halting = self-scaled computation (`chain_cot.py`)
+The 13% (multi-hop composition) was NOT a depth problem (depth sweep #hop_depth: L2=17% L4=15%, h1 at chance,
+depth doesn't help) -- the recall core does SINGLE-hop ~100% but CANNOT compose multi-hop in one parallel forward.
+FIX = don't ask the parallel forward to compose; ITERATE the single-hop autoregressively (chain-of-thought) and
+HALT on the model's own arrival signal. Successor-chase task (N=12):
+- ONESHOT (1 parallel forward): 100% BUT via a shortcut (terminal is directly identifiable); on the earlier
+  non-shortcuttable arbitrary-h-hop target, oneshot = 13%.
+- COT (iterated single-hop + intrinsic STOP): terminal-acc **92%**, and #generated steps == TRUE distance
+  PERFECTLY (dist k -> k.0 steps, clean 1:1 diagonal across dist 1..11). The model self-scales computation exactly
+  to difficulty, halting by its OWN terminal-recognition, NO external step schedule.
+FINDING: multi-step reasoning = iterated single-hop + intrinsic halt (chain-of-thought). Jumps composition 13%->
+92%. This is ALSO the honest scaffolding-free self-growth answer: adaptive compute in the GENERATION axis -- the
+brain spends exactly as much thinking as the problem needs, decided by itself (perfect steps-vs-distance). Ranking
+of self-growth mechanisms: (1) CoT+intrinsic-halt = strong self-scaling [#41]; (2) PonderNet adaptive-depth =
+works, modest [#40]; (3) MoE/hypernet param-recruitment = didn't deliver [#40]; physical param-alloc = irreducibly
+external [RESEARCH_selfgrowth.md].
+
+
+## 42. Can adaptive-compute (halting) go INTO pretraining? -- NO, empirically (ponder_smoke.py)
+Q: integrate the scaffolding-free adaptive-compute axis (#41 CoT+halting) into the from-scratch scale run?
+Smoke test on real text (window2, ctx=1024, 700 steps): STANDARD fixed-depth-4 LM -> ppl 129; PONDER weight-tied +
+PonderNet halting -> ppl 1068 (8x WORSE), 2.7x slower, halting COLLAPSED (exp_steps pinned 4.0 = always max, never
+halts early). VERDICT: adaptive-compute does NOT pretrain well from scratch -- the halting head has no capable
+atomic primitive to gate, so it just adds instability. Correctly NOT in the scale run. Its right home is a
+REASONING FINE-TUNE on a capable base (as #41 showed -- shines when the single-step primitive already works; same
+pattern as real reasoning models: pretrain then RL/CoT). The two scaffolding-free axes live in DIFFERENT phases:
+intrinsic GROWTH (own-entropy trigger) in pretraining [live]; intrinsic ADAPTIVE-COMPUTE (CoT+halt) in a later
+fine-tune [proven #41].
+
+
+## 43. Fixed 200M pretraining -- 3 architecture bugs (scale_train.py)
+Starting a fixed 216M (d1024/L18, no-growth) run diverged (loss=196, ppl=e^20) -- NOT lr. Three real bugs, all
+would bite any deep/wide model here:
+1. NO FINAL LAYERNORM before the (tied) head -> residual grows over 18 layers -> logit explosion. 45M/12L survived
+   (shallow); 18L/d1024 blew up. Fix: s.lnf=LayerNorm(d); head(lnf(h)).
+2. nn.Embedding DEFAULT INIT = N(0,1) -> tied-head logit std ~sqrt(d)~32 -> init loss in the HUNDREDS. Fix:
+   normal_(emb,0,0.02) (GPT init; tied head inherits).
+3. Short warmup + high lr for a big model. Fix: WARM=2000, lr=3e-4.
+After fixes: init loss 9.9 -> dropping (7.3 @ warmup200). 216M fixed run live (ctx4096, bs2 beside prod, ~17K
+tok/s, no growth, no token cap; ~2.7 days to saturate the 200M rung). Also added: env-config D/LSTART/NOGROW,
+RESUME-from-latest-snapshot, VChunkRecall stable=True (feature-norm) for big-d/long-ctx numerical stability.
+Plan: train 200M to convergence (best chance at recall emergence -- one size trained fully, vs grow-from-small
+undertraining each rung), THEN enable growth from the converged base.

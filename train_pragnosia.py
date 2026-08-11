@@ -31,6 +31,10 @@ LONG_BPTT = os.environ.get("LONG_BPTT", "0") == "1"
 # is never followed by pure-short training that would erode the carry. The growth PROBE still runs at W=1
 # (cheap). Default 0 = fixed-W long-context (refine only, growth off).
 LONG_MIX = os.environ.get("LONG_MIX", "0") == "1"
+# LR_ADAPT=0 disables the adaptive lr controller (cut/ease/raise) -> the --lr peak is held fixed after warmup.
+LR_ADAPT = os.environ.get("LR_ADAPT", "1") == "1"
+# consecutive degraded vals required before the lr is cut (1 = old single-sample behaviour).
+LR_DEG_STREAK = int(os.environ.get("LR_DEG_STREAK", "3"))
 MEM_STOP_GB = 2.0      # background safety floor: if free GPU VRAM drops to/below this,
                        # save the checkpoint and stop cleanly (protects the co-resident
                        # prod services from OOM). Resume later with --resume.
@@ -108,25 +112,49 @@ def _identity_batch(seqs, bs):
         y[i, :len(yi)] = torch.tensor(yi, device=DEVICE)
     return x, y
 
+def _det_state(S):
+    """Detach a carried state list across a window boundary. Robust to nested states: carrier states are
+    tensors; Based recall states are (S,Z) tuples (spin_based). Recurses so both thread cleanly."""
+    def d(s):
+        if torch.is_tensor(s): return s.detach()
+        return type(s)(d(x) for x in s)
+    return [d(s) for s in S]
+
+
 def _long_step(m, td, bs, W, ctx, actx, accum, bptt=False):
     """One long-context micro-batch: feed a W*ctx sequence as W windows, carrying the carrier state
     across them. Teaches the model to USE a cross-window carried state. Returns the mean per-window loss.
     bptt=False (default): detach state at each boundary, backprop per window -> memory bounded to ONE
     window (safe on a shared GPU). bptt=True: keep the graph across all windows, one backward -> the
     carrier also learns to WRITE useful cross-window state (stronger, needs grad-checkpoint for memory)."""
-    x, y = H.batch_long(td, bs, W); S = None; tot = 0.0; losses = []
+    x, y = H.batch_long(td, bs, W); S = None; tot = 0.0; losses = []; nw = 0
     for w in range(W):
         xw = x[:, w*ctx:(w+1)*ctx]; yw = y[:, w*ctx:(w+1)*ctx]
         with actx:
             lg, S = m(xw, state=S, return_state=True)   # m(...) not m.forward(...) -> uses torch.compile (~2.8x)
             lw = F.cross_entropy(lg.reshape(-1, VOC), yw.reshape(-1))
-        tot += lw.item()
+        # NaN-guard: a window that is ALL padding (every target == -100) makes cross_entropy 0/0 = NaN;
+        # backprop'ing it poisons every grad (clip_grad can't fix NaN). Skip it, keep the state flowing.
+        if not torch.isfinite(lw):
+            if os.environ.get("DEBUG_NAN") == "1" and not getattr(m, "_nan_dumped", False):
+                m._nan_dumped = True
+                wbad = [n for n, p in m.named_parameters() if not torch.isfinite(p).all()]
+                with open("nan_dump.txt", "w") as fh:
+                    fh.write(f"NON-FINITE window w={w}/{W} bs={bs}\n")
+                    fh.write(f"  xw tok [{int(xw.min())},{int(xw.max())}] yw [{int(yw.min())},{int(yw.max())}]\n")
+                    fh.write(f"  logits finite={bool(torch.isfinite(lg).all())} absmax={lg.abs().max().item():.3e}\n")
+                    fh.write(f"  incoming-state absmax={[round(s.abs().max().item(),3) for s in (S or []) if __import__('torch').is_tensor(s)]}\n")
+                    fh.write(f"  MODEL PARAMS non-finite: {len(wbad)} -> {wbad[:8]}\n")
+                print(f"  [DEBUG_NAN] dumped first non-finite window to nan_dump.txt (w={w}/{W}, "
+                      f"{len(wbad)} corrupt params)", flush=True)
+            S = _det_state(S); continue
+        tot += lw.item(); nw += 1
         if bptt:
             losses.append(lw / W / accum)
         else:
-            (lw / W / accum).backward(); S = [s.detach() for s in S]
-    if bptt: sum(losses).backward()                                 # one backward across all W windows
-    return tot / W
+            (lw / W / accum).backward(); S = _det_state(S)
+    if bptt and losses: sum(losses).backward()                      # one backward across the finite windows
+    return tot / max(nw, 1)
 
 @torch.no_grad()
 def _val_long(m, vd, W, ctx, bs, actx, iters=20):
@@ -206,7 +234,17 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     def _mkopt(params, lr, wd=0.05):                                   # fused AdamW kernel on GPU (~5% faster
         if lowmem: return bnb.optim.PagedAdamW8bit(params, lr=lr, weight_decay=wd, betas=(0.9, 0.95))
         return torch.optim.AdamW(params, lr=lr, weight_decay=wd, betas=(0.9, 0.95), fused=(DEVICE == "cuda"))
-    opt = _mkopt(m.parameters(), lr)
+    # BASED_LR: the additive Based recall branch is ZERO-INIT (must learn from scratch) -> give it a HIGHER lr
+    # than the gentle base lr (which only lightly adapts the already-trained model). Two param groups.
+    _based_mult = float(os.environ.get("BASED_LR_MULT", "0"))
+    if _based_mult > 0 and any(n.startswith("based.") for n, _ in m.named_parameters()):
+        bp = [p for n, p in m.named_parameters() if n.startswith("based.")]
+        rest = [p for n, p in m.named_parameters() if not n.startswith("based.")]
+        opt = _mkopt([{"params": rest, "lr": lr}, {"params": bp, "lr": lr * _based_mult}], lr)
+        print(f"[based-lr] Based branch lr = {lr*_based_mult:.1e} ({_based_mult}x base {lr:.1e}); {sum(p.numel() for p in bp)/1e6:.1f}M Based params", flush=True)
+    else:
+        opt = _mkopt(m.parameters(), lr)
+    _lr_mults = [g["lr"] / max(lr, 1e-12) for g in opt.param_groups]   # per-group lr ratio (1.0 unless BASED_LR_MULT)
     # identity injection (optional, env-gated)
     id_path = os.environ.get("PRAGNOSIA_IDENTITY")
     id_seqs = _load_identity(id_path) if id_path and os.path.exists(id_path) else None
@@ -226,6 +264,7 @@ def main(steps, lr, resume, override_bs, grow_enabled):
     # degradation, ease on plateau (mirrors grow-on-saturation). lr_scale self-tunes; --lr is
     # just the initial peak. So a too-high start auto-corrects instead of silently degrading.
     lr_scale, lr_wait, lr_patience = 1.0, 0, 3
+    deg_streak = 0                                    # consecutive degraded vals (for the sustained-cut test)
     def lr_at(it):
         return min(1.0, it / warm) * lr_scale
     actx = torch.autocast("cuda", dtype=torch.bfloat16) if bf16 else torch.autocast("cuda", enabled=False)
@@ -253,6 +292,7 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                   f"peak_lr {lr:.2e}) -- not restarting from 0", flush=True)
         except Exception as e: print("state restore skipped:", str(e)[:50], flush=True)
     t0, run_loss, base_toks = time.time(), None, seen_toks       # base_toks -> tok/s for THIS run only
+    nan_skips = 0                                                # NaN-guard: optimizer steps skipped on non-finite grads
     no_improve, grow_patience, grow_count = 0, int(os.environ.get("GROW_PATIENCE", "5")), 0   # grow-as-you-train
     val_every = int(os.environ.get("VAL_EVERY", "500"))              # validation/checkpoint cadence (tunable)
     best_ckpt = os.environ.get("BEST_CKPT", "pragnosia_best.pt")     # save-on-best path (env so tests don't clobber)
@@ -298,7 +338,7 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                 file=sys.stdout, smoothing=.05)
     for it in pbar:
         clr = lr * lr_at(it)
-        for g in opt.param_groups: g["lr"] = clr
+        for gi, g in enumerate(opt.param_groups): g["lr"] = clr * _lr_mults[gi]   # keep per-group ratio (Based lr)
         opt.zero_grad()
         if LONG_W > 1:                               # windowed long-context: carry carrier state across W windows
             Wt = _sample_W(it, steps, LONG_W) if LONG_MIX else LONG_W   # this step's window count (curriculum if mixed)
@@ -314,7 +354,22 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                     loss = F.cross_entropy(fwd(x).reshape(-1, VOC), y.reshape(-1)) / accum
                 loss.backward()
             l = loss.item() * accum
-        torch.nn.utils.clip_grad_norm_(m.parameters(), 1.0); opt.step()
+        # NaN-guard (catch-all): if ANY grad is non-finite the grad-norm is non-finite -> skip the step so a
+        # single bad micro-batch can't poison the weights (clip_grad_norm scales by 1/norm = NaN and would NOT
+        # protect). Weights stay intact, run continues. Only step when the whole grad is finite.
+        gnorm = torch.nn.utils.clip_grad_norm_(m.parameters(), 1.0)
+        if os.environ.get("DEBUG_NAN") == "1" and it < start_it + 8:
+            bad = [n for n, p in m.named_parameters() if p.grad is not None and not torch.isfinite(p.grad).all()]
+            wbad = [n for n, p in m.named_parameters() if not torch.isfinite(p).all()]
+            pbar.write(f"  [dbg] it={it} l={l:.4f} gnorm={float(gnorm):.3e} Wt={Wt} "
+                       f"| nan-grad params={len(bad)} {bad[:4]} | nan-WEIGHT params={len(wbad)} {wbad[:4]}")
+        if torch.isfinite(gnorm):
+            opt.step()
+        else:
+            opt.zero_grad(set_to_none=True); nan_skips += 1
+            if nan_skips <= 20 or nan_skips % 50 == 0:
+                pbar.write(f"  [nan-guard] step {it}: non-finite grad -> step SKIPPED "
+                           f"(total skipped {nan_skips}; weights unchanged)")
         run_loss = l if run_loss is None else 0.92 * run_loss + 0.08 * l
         if id_seqs and it % id_every == 0:           # gentle identity nudge, interleaved
             id_opt.zero_grad()
@@ -322,7 +377,9 @@ def main(steps, lr, resume, override_bs, grow_enabled):
             with actx:
                 il = F.cross_entropy(fwd(xi).reshape(-1, VOC), yi.reshape(-1), ignore_index=-100)
             il.backward()
-            torch.nn.utils.clip_grad_norm_(m.parameters(), 1.0); id_opt.step()
+            ig = torch.nn.utils.clip_grad_norm_(m.parameters(), 1.0)
+            if torch.isfinite(ig): id_opt.step()
+            else: id_opt.zero_grad(set_to_none=True); nan_skips += 1
         seen_toks += bs * accum * CFG["ctx"] * Wt                            # ACTUAL tokens this step (W varies if mixed)
         toks = seen_toks                                                     # cumulative (epoch + growth gate, accurate)
         tps = (seen_toks - base_toks) / max(1e-6, time.time() - t0)          # rate THIS run (resume-correct)
@@ -371,9 +428,32 @@ def main(steps, lr, resume, override_bs, grow_enabled):
                 # itself (the same std/mean bar the growth probe uses), not a hardcoded 2%: a real
                 # degradation is one that clears 2 sigma of the recent val wobble.
                 vnoise = float(np.std(val_hist[-4:]) / max(1e-6, np.mean(val_hist[-4:]))) if len(val_hist) >= 3 else 0.02
-                if it > warm and ppl > best * (1 + 2 * vnoise) and lr_scale > 0.02:   # degraded past the noise -> cut
-                    lr_scale *= 0.5; lr_wait = 0
-                    pbar.write(f"  ~~ lr auto-CUT (val {ppl:.2f} > best +{2*vnoise*100:.1f}% noise) -> lr {lr*lr_scale:.2e} (scale {lr_scale:.3f})")
+                # LR_ADAPT=0 -> FIXED lr (no cut/ease/raise). Needed when the val is noisy relative to the
+                # gap being chased: a lucky-noise `best` makes every later val look "degraded", so the
+                # controller cuts repeatedly and PINS the lr (observed: 1B stuck 25h at 4.6e-6, best=18.05
+                # was a noise outlier in an 18.3-19.7 band, 7 cuts vs 1 raise). Then a fixed lr is correct.
+                # DEGRADATION TEST -- two corrections over the original (which cut on a single sample vs `best`):
+                #  (1) REFERENCE = running MEAN of recent vals, NOT `best`. `best` is a MINIMUM over noisy
+                #      samples, so it is biased LOW and the bias WORSENS as the run lengthens (more draws ->
+                #      lower min). Comparing to it makes every honest val look "degraded" -> endless cuts.
+                #      (Observed: 1B best=18.05 was a lucky draw from an 18.3-19.7 band; true level 18.83.)
+                #  (2) SUSTAINED -- a cut needs LR_DEG_STREAK consecutive degraded vals, so one noisy sample
+                #      cannot move the lr. Together these stop the 7-cuts-vs-1-raise spiral that pinned the lr.
+                # TWO anchors, because each alone fails: the running MEAN chases a monotonic climb (it rises
+                # to meet each new val, so a runaway divergence never trips it -- observed: 703M went
+                # 18.8->27.4 with ZERO cuts); `best` alone is a noise-biased minimum that over-cuts on a
+                # flat plateau (observed: 1B pinned at 4.6e-6). Trip on EITHER, and require a streak so a
+                # single noisy sample still cannot move the lr.
+                ref_mean = float(np.mean(val_hist[-6:-1])) if len(val_hist) >= 3 else ppl
+                over_mean = ppl > ref_mean * (1 + 2 * vnoise)
+                over_best = ppl > best * (1 + max(0.08, 3 * vnoise))   # fixed anchor, generous margin
+                deg_streak = deg_streak + 1 if (it > warm and (over_mean or over_best)) else 0
+                if not LR_ADAPT:
+                    pass
+                elif deg_streak >= LR_DEG_STREAK and lr_scale > 0.02:   # SUSTAINED degradation past the noise -> cut
+                    lr_scale *= 0.5; lr_wait = 0; deg_streak = 0
+                    pbar.write(f"  ~~ lr auto-CUT (val {ppl:.2f} vs mean {ref_mean:.2f}/best {best:.2f}, "
+                               f"{LR_DEG_STREAK} vals running) -> lr {lr*lr_scale:.2e} (scale {lr_scale:.3f})")
                 elif lr_wait >= lr_patience and lr_scale > 0.02:               # plateaued (above floor) -> ease down
                     lr_scale *= 0.7; lr_wait = 0
                     pbar.write(f"  ~~ lr auto-EASED (plateau) -> lr {lr*lr_scale:.2e} (scale {lr_scale:.3f})")

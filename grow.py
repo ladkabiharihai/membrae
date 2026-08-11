@@ -34,6 +34,9 @@ def _shell(model, n_layer, mlp_mult):
         big.carrier.load_state_dict(model.carrier.state_dict())
     elif mode == "per_block":
         for nc, oc in zip(big.carriers, model.carriers): nc.load_state_dict(oc.state_dict())
+    if hasattr(model, "based") and hasattr(big, "based"):  # spin_based: preserve trained Based recall branches
+        for k, mod in model.based.items():                 # Based dim depends only on d (grow keeps d), and depth
+            if k in big.based: big.based[k].load_state_dict(mod.state_dict())   # only ADDS layers -> keys carry over
     big.head.weight = big.emb.weight                       # keep the tie
     return big                                             # spin_dominant/none carriers live in the blocks
 

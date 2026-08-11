@@ -62,9 +62,9 @@ class SpinBlock(nn.Module):
     attention) + an MLP for channel mixing. This is the intended design -- spin is the core compute,
     attention is reserved for a few 'helper' layers. The carrier here mixes strongly (not a light
     side-channel), so cross-token information flows through the spin dynamics."""
-    def __init__(self, d, mlp_mult=4):
+    def __init__(self, d, mlp_mult=4, carrier_cls=None):
         super().__init__()
-        self.carrier = SpinCarrier(d)
+        self.carrier = (carrier_cls or SpinCarrier)(d)            # carrier_cls -> SelectiveSpinCarrier for spin_selective
         with torch.no_grad(): self.carrier.gate.fill_(2.0)        # strong mixer (sigmoid(2)=0.88), not 0.12 side-channel
         self.ln2 = nn.LayerNorm(d)
         self.mlp = nn.Sequential(nn.Linear(d, mlp_mult * d), nn.GELU(), nn.Linear(mlp_mult * d, d))
@@ -162,6 +162,68 @@ class SpinCarrier(nn.Module):
         out = self.C(torch.cat([hr, hi], -1))                        # phase + magnitude -> real
         return x + torch.sigmoid(self.gate) * out, torch.stack([hr[:, -1], hi[:, -1]], 1)
 
+
+def _scan_tv(lr, li, br, bi, h0r=None, h0i=None):
+    """Time-VARYING diagonal-complex associative scan: lr,li,br,bi are all [B,T,D] (per-timestep lambda),
+    vs _lru_scan's broadcast constant. Same Hillis-Steele combine; folds an initial state h0 at position 0
+    with that position's own lambda. Enables the SELECTIVE (input-dependent decay) carrier."""
+    B, T, D = br.shape
+    if T == 0: return br, bi                               # empty window guard
+    Ar, Ai = lr.clone(), li.clone()
+    Hr, Hi = br.clone(), bi.clone()
+    if h0r is not None:                                    # h_0 = lambda_0 (.) h0 + b_0
+        Hr[:, 0] = Hr[:, 0] + lr[:, 0] * h0r - li[:, 0] * h0i
+        Hi[:, 0] = Hi[:, 0] + lr[:, 0] * h0i + li[:, 0] * h0r
+    d = 1
+    while d < T:
+        arr, ari = Ar[:, d:], Ai[:, d:]; alr, ali = Ar[:, :T - d], Ai[:, :T - d]
+        hlr, hli = Hr[:, :T - d], Hi[:, :T - d]
+        tHr = arr * hlr - ari * hli; tHi = arr * hli + ari * hlr
+        Hr = torch.cat([Hr[:, :d], Hr[:, d:] + tHr], 1); Hi = torch.cat([Hi[:, :d], Hi[:, d:] + tHi], 1)
+        nAr = arr * alr - ari * ali; nAi = arr * ali + ari * alr
+        Ar = torch.cat([Ar[:, :d], nAr], 1); Ai = torch.cat([Ai[:, :d], nAi], 1)
+        d *= 2
+    return Hr, Hi
+
+
+class SelectiveSpinCarrier(nn.Module):
+    """SELECTIVE spin carrier (Mamba/S6 idea on the complex spin): the decay MAGNITUDE is input-dependent
+    via a per-token step size Delta_t = softplus(W_delta x_t), so |lambda_t| = exp(-Delta_t * exp(nu)) in
+    (0,1). The model can drive Delta_t -> 0 to LATCH a token (|lambda|->1, remember long-range) or large to
+    forget -- fixing the fixed-decay carrier's long-context recall failure while keeping the O(T*d) parallel
+    scan and O(1)/token inference. Drop-in for SpinCarrier: same params (+delta) and same forward signature,
+    so a spin_dominant checkpoint grafts in via load_state_dict(strict=False). Delta is init function-preserving
+    (softplus(bias)=1 -> |lambda_t| matches the base's fixed |lambda| at init: the grafted model starts identical)."""
+    def __init__(self, d):
+        super().__init__()
+        self.d = d
+        self.ln = nn.LayerNorm(d)
+        r = torch.rand(d)
+        self.nu = nn.Parameter(torch.log(-torch.log(0.5 + 0.4 * r)))
+        self.theta = nn.Parameter(math.pi * torch.rand(d))
+        self.U_re = nn.Linear(d, d); self.U_im = nn.Linear(d, d)
+        self.gain = nn.Linear(d, d)
+        self.C = nn.Linear(2 * d, d)
+        self.gate = nn.Parameter(torch.tensor(-2.0))
+        self.delta = nn.Linear(d, d)                                 # input-dependent step size -> selective decay
+        nn.init.zeros_(self.delta.weight)                            # function-preserving graft: softplus(0.5413)=1.0
+        nn.init.constant_(self.delta.bias, 0.5413248)                #   -> |lambda_t| = exp(-exp(nu)) = the base at init
+    def forward(self, x, h0=None):
+        yn = self.ln(x)
+        g = torch.sigmoid(self.gain(yn))
+        br = self.U_re(yn) * g; bi = self.U_im(yn) * g
+        base = torch.exp(self.nu)                                    # [D] > 0
+        dt = F.softplus(self.delta(yn))                              # [B,T,D] > 0 : small -> latch, large -> forget
+        mag = torch.exp(-dt * base)                                  # [B,T,D] in (0,1) -> |lambda|<1 stability preserved
+        ph = torch.exp(self.theta).view(1, 1, -1)
+        lr = mag * torch.cos(ph); li = mag * torch.sin(ph)          # [B,T,D] per-token complex lambda
+        h0r = h0i = None
+        if h0 is not None: h0r, h0i = h0[:, 0], h0[:, 1]
+        hr, hi = _scan_tv(lr.to(br.dtype), li.to(br.dtype), br, bi, h0r, h0i)
+        out = self.C(torch.cat([hr, hi], -1))
+        return x + torch.sigmoid(self.gate) * out, torch.stack([hr[:, -1], hi[:, -1]], 1)
+
+
 class RealCarrier(nn.Module):
     """Diagonal-REAL linear recurrence (no phase): h_t = lam (.) h_{t-1} + b_t, lam in (0,1). A DIFFERENT
     recurrence family from the complex spin carrier -- used to test whether PLACEMENT, not the complex
@@ -206,6 +268,37 @@ class RealBlock(nn.Module):
         x = x + self.mlp(self.ln2(x))
         return x, hs
 
+class BasedRecall(nn.Module):
+    """Additive LONG-RANGE RECALL branch (Based: linear attention + 2nd-order Taylor feature map = softmax-like
+    SHARPNESS, O(T), computed via cumsum). VALIDATED at small scale (RESULTS #29): multi-head Based recalls a fact
+    at any distance to 1024 (100%) where the diagonal/selective carrier is at chance -- the mechanism the spin
+    carrier structurally lacks. Output projection is ZERO-INITIALIZED so a grafted checkpoint is IDENTICAL at
+    t=0; training this branch adds native long-context recall WITHOUT a from-scratch retrain. Threads its (S,Z)
+    running state across windows -> O(T) cross-window recall (state=None => within-window)."""
+    def __init__(self, d, heads=4, feat=8):
+        super().__init__(); self.h = heads; self.fe = feat; self.dh = d // heads
+        self.ln = nn.LayerNorm(d)
+        self.q = nn.Linear(d, heads * feat); self.k = nn.Linear(d, heads * feat); self.v = nn.Linear(d, d)
+        self.o = nn.Linear(d, d)
+        nn.init.zeros_(self.o.weight); nn.init.zeros_(self.o.bias)   # FUNCTION-PRESERVING: adds 0 at init
+    def _taylor(self, x):                                            # [B,T,H,fe] -> [B,T,H,1+fe+fe^2]
+        B, T, H, fd = x.shape
+        x2 = (x.unsqueeze(-1) * x.unsqueeze(-2)).reshape(B, T, H, fd * fd) / (2 ** 0.5)
+        return torch.cat([torch.ones(B, T, H, 1, device=x.device), x, x2], -1)
+    def forward(self, x, state=None):
+        B, T, d = x.shape; H, fe, dh = self.h, self.fe, self.dh
+        z = self.ln(x)
+        q = self._taylor(self.q(z).view(B, T, H, fe)); k = self._taylor(self.k(z).view(B, T, H, fe)); v = self.v(z).view(B, T, H, dh)
+        kv = k.unsqueeze(-1) * v.unsqueeze(-2)                       # [B,T,H,F,dh]
+        S = torch.cumsum(kv, 1); Z = torch.cumsum(k, 1)             # causal running sums
+        if state is not None:
+            S0, Z0 = state; S = S + S0.unsqueeze(1); Z = Z + Z0.unsqueeze(1)   # thread prior window's state
+        num = torch.einsum('bthf,bthfd->bthd', q, S)
+        den = torch.einsum('bthf,bthf->bth', q, Z).clamp_min(1e-4).unsqueeze(-1)
+        out = self.o((num / den).reshape(B, T, d))
+        return out, (S[:, -1], Z[:, -1])
+
+
 class SpinAttentionLM(nn.Module):
     """Attention-dominant for quality + one spin carrier for cross-token state."""
     def __init__(self, vocab=VOC, d=512, n_head=8, n_layer=3, mlp_mult=4, carrier="single"):
@@ -222,6 +315,13 @@ class SpinAttentionLM(nn.Module):
         elif carrier == "spin_dominant_coupled":                         # FAST-SLOW coupling (DMP-inspired): the every-4th
             self.blocks = nn.ModuleList([CoupledBlock(d, n_head, mlp_mult) if i % 4 == 3 else SpinBlock(d, mlp_mult)
                                          for i in range(n_layer)])        #   attention block is modulated by a slow state
+        elif carrier in ("spin_selective", "spin_based"):                # spin_dominant with INPUT-DEPENDENT decay
+            self.blocks = nn.ModuleList([Block(d, n_head, mlp_mult) if i % 4 == 3          #   (Mamba/S6-style latch) as
+                                         else SpinBlock(d, mlp_mult, carrier_cls=SelectiveSpinCarrier)  # the core mixer
+                                         for i in range(n_layer)])        #   -> long-range recall; grafts from spin_dominant
+            if carrier == "spin_based":                                  # + additive Based RECALL branches (zero-init,
+                self._based_layers = [i for i in range(n_layer) if i % 8 == 4]   #   function-preserving) on a few
+                self.based = nn.ModuleDict({str(i): BasedRecall(d) for i in self._based_layers})  # spread-out layers
         else:
             self.blocks = nn.ModuleList([Block(d, n_head, mlp_mult) for _ in range(n_layer)])
         if carrier == "single":                                          # one carrier after all blocks (default):
@@ -236,6 +336,14 @@ class SpinAttentionLM(nn.Module):
         for nm, p in self.named_parameters():         # GPT residual-proj scaling
             if nm.endswith('proj.weight') or nm.endswith('mlp.2.weight'):
                 nn.init.normal_(p, 0.0, 0.02 / math.sqrt(2 * n_layer))
+        if carrier in ("spin_selective", "spin_based"):  # self.apply(_init) above clobbered the carriers' delta;
+            for blk in self.blocks:                    # RE-apply the function-preserving init (softplus(bias)=1)
+                c = getattr(blk, "carrier", None)      # so a grafted spin_dominant checkpoint starts IDENTICAL.
+                if isinstance(c, SelectiveSpinCarrier):
+                    nn.init.zeros_(c.delta.weight); nn.init.constant_(c.delta.bias, 0.5413248)
+        if carrier == "spin_based":                    # _init clobbered the zero-init on the Based output proj;
+            for m in self.based.values():              # RE-zero it so the grafted model is IDENTICAL at t=0
+                nn.init.zeros_(m.o.weight); nn.init.zeros_(m.o.bias)
     def _init(self, m):
         if isinstance(m, nn.Linear):
             nn.init.normal_(m.weight, 0.0, 0.02)
@@ -251,8 +359,10 @@ class SpinAttentionLM(nn.Module):
         # generation path: carry the intra-block carrier state across forward calls (windows), so
         # spin_dominant / real_dominant get O(T) cross-window long context. Off in training (state=None,
         # return_state=False) so checkpointing/compile are untouched.
-        thread = (return_state or state is not None) and mode in ("spin_dominant", "real_dominant", "spin_dominant_coupled")
-        si = 0
+        thread = (return_state or state is not None) and mode in ("spin_dominant", "real_dominant", "spin_dominant_coupled", "spin_selective", "spin_based")
+        # state layout for spin_based: [carrier states (one per forward_state block) ..., Based states ...]
+        n_cstate = sum(1 for b in self.blocks if hasattr(b, "forward_state")) if thread else 0
+        si = 0; bi = 0; based_states = []
         for i, b in enumerate(self.blocks):                              # -> trains a big model on a small GPU
             if thread and hasattr(b, "forward_state"):                   # SpinBlock/RealBlock -> thread its carrier state
                 h0 = None if state is None else state[si]
@@ -262,6 +372,11 @@ class SpinAttentionLM(nn.Module):
                 h = torch.utils.checkpoint.checkpoint(b, h, use_reentrant=False) if ck else b(h)
             if mode == "per_block":                                      # carrier inside every block
                 h, hs = self.carriers[i](h, None if state is None else state[i]); states.append(hs)
+            if mode == "spin_based" and str(i) in self.based:            # ADDITIVE Based recall branch (zero-init ->
+                bmod = self.based[str(i)]                                #   function-preserving); THREADS its (S,Z) recall
+                b0 = state[n_cstate + bi] if state is not None else None  #   state across windows -> O(T) UNBOUNDED recall
+                bo, bs = bmod(h, b0); h = h + bo; based_states.append(bs); bi += 1
+        states = states + based_states                                   # Based states after carrier states (order fixed)
         if mode == "single":                                            # one carrier after all blocks
             h, hs = self.carrier(h, None if state is None else state[0]); states = [hs]
         lg = self.head(self.lnf(h))
@@ -282,13 +397,16 @@ class SpinAttentionLM(nn.Module):
         return self.head(self.lnf(h))
 
     @torch.no_grad()
-    def generate(self, ids, n_new=64, window=256, overlap=64, temp=0.0, rep=1.3, eos=0):
+    def generate(self, ids, n_new=64, window=256, overlap=64, temp=0.0, rep=1.3, eos=0,
+                 top_p=0.0, no_repeat_ngram=4):
         """O(T) LONG-context generation. Attention only ever sees `window` tokens (the
         trained context) so positions never exceed the cap and quality stays in-distribution;
         the spin carrier carries the running cross-window state, so the prompt AND the output
         can be arbitrarily long without growing per-token compute. Long prompt -> processed in
         window-blocks (carry state). Generation -> when the live window fills, the older part is
-        committed into the carrier and an `overlap` tail is kept for local attention continuity."""
+        committed into the carrier and an `overlap` tail is kept for local attention continuity.
+        no_repeat_ngram>0 hard-blocks any generated n-gram from recurring (kills the long-form
+        sentence-loop the 40-token rep window can't see); top_p>0 does nucleus sampling when temp>0."""
         dev = self.emb.weight.device
         ids = list(ids); out = []; S = None
         keep_from = max(0, len(ids) - window)                  # commit everything before the last window
@@ -298,13 +416,28 @@ class SpinAttentionLM(nn.Module):
             _, S = self.forward(torch.tensor([blk], device=dev), state=S, return_state=True)
             j += window
         win = ids[keep_from:] or [eos]
+        ngrams = {}                                            # (n-1)-gram -> set of tokens that followed (loop guard)
+        n = no_repeat_ngram
         for _ in range(n_new):
             lg, _ = self.forward(torch.tensor([win], device=dev), state=S, return_state=True)
             logits = lg[0, -1].float()
             for t in set((win + out)[-40:]): logits[t] /= rep
-            nx = int(logits.argmax()) if temp <= 0 else int(torch.multinomial(torch.softmax(logits / temp, -1), 1))
+            if n > 0 and len(out) >= n - 1:                    # block tokens that would repeat an existing n-gram
+                for t in ngrams.get(tuple(out[-(n - 1):]), ()): logits[t] = -1e30
+            if temp <= 0:
+                nx = int(logits.argmax())
+            else:
+                probs = torch.softmax(logits / temp, -1)
+                if top_p and 0 < top_p < 1:
+                    sp, si = torch.sort(probs, descending=True); cdf = sp.cumsum(-1)
+                    sp[cdf - sp > top_p] = 0.0; sp = sp / (sp.sum() + 1e-9)
+                    nx = int(si[int(torch.multinomial(sp, 1))])
+                else:
+                    nx = int(torch.multinomial(probs, 1))
             if nx == eos: break
             out.append(nx); win = win + [nx]
+            if n > 0 and len(out) >= n:                        # record the new n-gram
+                ngrams.setdefault(tuple(out[-n:-1]), set()).add(out[-1])
             if len(win) >= window:                             # commit older tokens, keep overlap for context
                 commit, win = win[:-overlap], win[-overlap:]
                 _, S = self.forward(torch.tensor([commit], device=dev), state=S, return_state=True)
