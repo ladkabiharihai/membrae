@@ -1281,3 +1281,10 @@ BF16 ckpt). So the live run now has: constant ACTIVE compute as experts grow E=4
 AND ~1.5x compile speedup AND symmetric-Taylor. Recompiles on each expert-grow (rare, amortized). This resolves the
 earlier either/or (dense+compile-fast-but-compute-grows VS MoE-constant-but-slow) -> MoE+compile = both. Snapshots
 every 10k (moe_{step}_{M}M_E{E}.pt).
+
+## #81 — MoE growth redesigned (user): START E=1 dense (~363M), grow experts (leaner, developmental)
+User insight: starting E=4 carries dead experts early (top-1 uses 1 of 4). Better: start E=1 = a lean dense model,
+grow experts only on saturation. Reconfigured grow_moe_launch: D=1280 L=20 E0=1 EMAX=6, COMPILE=1 bf16 ckpt. Path:
+E=1 363M total=363M active (dense start) -> E=2 625M -> E=4 1150M -> E=6 1674M, ACTIVE flat 363M throughout. Verified
+E=1 FastMoE builds+grows(1->2)+trains. Cleaner constant-compute-growth story: differentiate into specialists when
+saturated, no early dead weight. Live run switched to this. Active 363M (vs old 174M) = more capable base held constant.
