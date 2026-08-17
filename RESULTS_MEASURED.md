@@ -1260,3 +1260,14 @@ torch.compile 1.45x (#78, dense path) ~= 1.7x stacked, NO capability loss, NO ex
 available -- grow-MoE at 1.6B OOMs w/o ckpt alongside prod (measured #77b). Remaining big lever = a hand-written fused
 Triton kernel for the chunk-scan (torch.compile already captures much of it now). Fundamental ~3x contention (271 vs
 990 TFLOPS shared H100) is irreducible while prod runs.
+
+## #79 — (a) DONE: compiled grow-to-1B live at 108K tok/s; (b) fused kernel = LOW marginal value, SKIP
+(a) Launched dense grow-to-1B with COMPILE=1 BF16=1 GRAD_CKPT=1 (grow1b_launch.sh, self-contained): 108K tok/s @304M
+(vs ~66-69K un-compiled) = the ~1.6-1.7x stack (symmetric-Taylor #77 + torch.compile #78 + bf16) landed. GPU 98%, prod safe.
+(b) Fused-Triton-kernel assessment: compiled mix ~14 effective TFLOPS = MEMORY-bound (linear attention's nature:
+state r/w + cumsum + small ops), NOT compute-bound. A fused kernel could cut HBM traffic BUT: torch.compile already
+fused the accessible part (the banked 1.45x); marginal gain over inductor is small+uncertain; a correct chunk-scan
+Triton kernel is multi-day high-risk; and the DOMINANT limit is GPU CONTENTION (~3x, irreducible while prod runs) which
+no kernel touches. VERDICT: (b) low marginal value at high cost -> SKIP (per user "if b is no value"). If ever revisited,
+adopt flash-linear-attention's proven chunk kernels rather than hand-write. Net speed story: ~1.7x banked, no capability
+loss, no extra memory, prod untouched; contention floor is the honest ceiling.
