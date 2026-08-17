@@ -1230,3 +1230,11 @@ dense. TO REALIZE the ~6x (->~2-3 days for 20B tok): a FUSED MoE kernel (grouped
 style) -- real Triton/CUDA engineering (torch.compile corrupts this core, #33). HONEST: user right in FLOPs, wrong in
 wall-clock for our pure-PyTorch impl; the blocker is the kernel, not the concept. (The linear-time core's 21x long-ctx
 win DOES show in wall-clock -- plain matmuls; MoE sparsity does NOT without a kernel.)
+
+## #76 — full 6x MoE speedup NOT reachable in pure PyTorch; needs a fused kernel
+Swept MoE-1B (E=8 top-1) dispatch configs for max throughput: cap1.0/no-ckpt 24K, cap1.0/ckpt 16K, cap1.5/ckpt 15K
+tok/s (contended -- grow_moe running). 6x FLOP ceiling ~135K tok/s (163M active vs 983M total). Pure-PyTorch best
+~= dense-1B speed (22.5K), i.e. the sparse FLOP saving does NOT convert to wall-clock without a FUSED grouped-GEMM
+MoE kernel (Megablocks-style Triton; torch.compile corrupts this core #33). HONEST: full 6x = real kernel engineering,
+not a config; the capacity+bmm dispatch (#75, 35.7K uncontended) recovers only ~1.6x. Measurements now noisy due to
+the concurrent grow_moe run. VERDICT: 6x is a fundamental FLOP fact but a kernel-gated wall-clock result.
