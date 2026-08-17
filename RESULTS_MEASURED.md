@@ -1238,3 +1238,13 @@ tok/s (contended -- grow_moe running). 6x FLOP ceiling ~135K tok/s (163M active 
 MoE kernel (Megablocks-style Triton; torch.compile corrupts this core #33). HONEST: full 6x = real kernel engineering,
 not a config; the capacity+bmm dispatch (#75, 35.7K uncontended) recovers only ~1.6x. Measurements now noisy due to
 the concurrent grow_moe run. VERDICT: 6x is a fundamental FLOP fact but a kernel-gated wall-clock result.
+
+## #77 — symmetric Taylor feature: exact, faster, free (speed win under the prod-shared-GPU constraint)
+The 2nd-order Taylor map computed the FULL fe*fe outer product (Fd=73 @ fe=8) but it's SYMMETRIC -> half duplicates.
+Using unique upper-triangle terms (diag coeff 1/sqrt2 + off-diag i<j coeff 1) gives the IDENTICAL inner product
+phi(q).phi(k) with Fd=1+fe+fe(fe+1)/2 = 45. VERIFIED: inner-product match max|Δ|=1.9e-6 (EXACT, not approx); MQAR-16
+recall 99% (unchanged); mix fwd 2.12->1.74ms (~1.2x mix, 1.4x fewer feat dims). ZERO capability change. Wired into
+fastcore_v.taylor (buffers _iu_i/_iu_j). This is a free training+inference speedup available WITHOUT freeing the GPU
+(prod stays up). Combines with: no-checkpoint (~1.5x, fits alongside prod at 1B ~21GB), bigger batch. Fundamental
+contention (271 vs ~990 TFLOPS = shared H100) is NOT removable while prod runs; a fused Triton kernel is the remaining
+big lever (real work). Net achievable w/o touching prod: symmetric(1.2x) + no-ckpt(1.5x) ~= 1.8x on the 1B run.

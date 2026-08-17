@@ -19,9 +19,15 @@ class VChunkRecall(nn.Module):
         super().__init__(); self.H=heads; self.fe=feat; self.dv=d//heads; self.C=chunk; self.stable=stable
         self.q=nn.Linear(d,heads*feat); self.k=nn.Linear(d,heads*feat); self.v=nn.Linear(d,d); self.o=nn.Linear(d,d)
         if stable: self.qn=nn.LayerNorm(feat); self.kn=nn.LayerNorm(feat)   # bound feature inputs -> no cumsum overflow over long seq
-    def taylor(self,x):                                    # [...,fe] -> [...,1+fe+fe^2]
-        pre=x.shape[:-1]; fd=x.shape[-1]; x2=(x.unsqueeze(-1)*x.unsqueeze(-2)).reshape(*pre,fd*fd)/(2**.5)
-        return torch.cat([torch.ones(*pre,1,device=x.device,dtype=x.dtype),x,x2],-1)
+        # SYMMETRIC (deduplicated) 2nd-order Taylor: the outer product x (x) x is symmetric, so only the upper triangle
+        # is unique. Using it gives the IDENTICAL inner product phi(q).phi(k) with Fd=1+fe+fe(fe+1)/2 (=45 at fe=8) vs
+        # fe^2 (=73) -> ~1.4x fewer feature dims, ZERO capability change (RESULTS #77). iu/diag precomputed per fe.
+        iu=torch.triu_indices(feat,feat,offset=1); self.register_buffer("_iu_i",iu[0],persistent=False); self.register_buffer("_iu_j",iu[1],persistent=False)
+    def taylor(self,x):                                    # [...,fe] -> [...,1+fe+fe(fe+1)/2]  (symmetric, exact)
+        pre=x.shape[:-1]; ones=torch.ones(*pre,1,device=x.device,dtype=x.dtype)
+        diag=(x*x)/(2**.5)                                 # i==j terms, coeff 1/sqrt(2)
+        off=x[...,self._iu_i]*x[...,self._iu_j]            # i<j terms, coeff 1 (accounts for the 2x from (i,j)+(j,i))
+        return torch.cat([ones,x,diag,off],-1)
     def forward(self,x):
         B,T,d=x.shape; H,fe,dv,C=self.H,self.fe,self.dv,self.C
         pad=(C-T%C)%C; Tp=T+pad
