@@ -1248,3 +1248,15 @@ fastcore_v.taylor (buffers _iu_i/_iu_j). This is a free training+inference speed
 (prod stays up). Combines with: no-checkpoint (~1.5x, fits alongside prod at 1B ~21GB), bigger batch. Fundamental
 contention (271 vs ~990 TFLOPS = shared H100) is NOT removable while prod runs; a fused Triton kernel is the remaining
 big lever (real work). Net achievable w/o touching prod: symmetric(1.2x) + no-ckpt(1.5x) ~= 1.8x on the 1B run.
+
+## #78 — torch.compile UNBLOCKED (was corrupting, #33): free ~1.45x, correct+stable, wired into dense trainer
+The #33 device-side-assert that made torch.compile corrupt the core is GONE after the symmetric-Taylor change (#77):
+  correctness: compiled vs eager max|Δ|=1.19e-6 (inference) AND training fwd+bwd MQAR-16=100% NaN=0 (== eager 100%).
+  speed: mix 1.73->1.19ms = ~1.45x. Wired into scale_train.py as COMPILE=1 (env-gated), verified end-to-end.
+CAVEAT: applies to the DENSE path; torch.compile graph-breaks on the FastMoE data-dependent routing (grow_moe run
+stays eager). Recompiles on a grow event but grows are rare (30k steps) so amortized.
+SPEED LEVERS SUMMARY (prod stays up, GPU shared, cannot free): symmetric-Taylor 1.2x (#77, free, applies on resume) +
+torch.compile 1.45x (#78, dense path) ~= 1.7x stacked, NO capability loss, NO extra memory. no-checkpoint (1.5x) NOT
+available -- grow-MoE at 1.6B OOMs w/o ckpt alongside prod (measured #77b). Remaining big lever = a hand-written fused
+Triton kernel for the chunk-scan (torch.compile already captures much of it now). Fundamental ~3x contention (271 vs
+990 TFLOPS shared H100) is irreducible while prod runs.

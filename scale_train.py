@@ -126,6 +126,8 @@ if __name__=="__main__":
     else:
         m=BrainLM(d=int(os.environ.get("D","512")),L=int(os.environ.get("LSTART","4"))).to(DEV)
     opt=torch.optim.AdamW(m.parameters(),lr=6e-4,betas=(0.9,0.95),weight_decay=0.1)
+    if os.environ.get("COMPILE","0")=="1":                        # #77: torch.compile now CORRECT+stable on the core
+        m=torch.compile(m); print("[torch.compile ON] ~1.45x on the mix (verified fwd+bwd correct, recall intact)",flush=True)  # (recompiles on grow; grows are rare)
     BS=int(os.environ.get("BS","24")); STEPS=int(os.environ.get("STEPS","400000"))
     print(f"SELF-SCALING RUN: {nparams(m)/1e6:.0f}M ({len(m.blocks)}L), window2 176B, ctx{CTX}, bs{BS}",flush=True)
     # fresh run: long warmup (big models diverge on short warmup); resume: short re-warmup. lr lower for big models.
