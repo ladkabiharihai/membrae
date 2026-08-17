@@ -1,1 +1,0 @@
-{"vocab":16384,"d":640,"heads":10,"layers":15,"mlp_mult":6,"ctx":256,"carrier":"none","tokenizer":"data/bpe.json","train_bin":"window2_train","valid_bin":"big_valid","ckpt":"pragnosia_100m_attn.pt"}

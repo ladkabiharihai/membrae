@@ -51,3 +51,7 @@ pragnosia_sft_lora.pt
 # Title page carries the corresponding author postal address -- keep out of git
 pragnosia_title_page.pdf
 title_page/
+archive/
+claude_memory/
+brainlogs/
+*.pdf

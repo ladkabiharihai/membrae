@@ -5,6 +5,15 @@ no compile/Triton fragility. Must still recall ~100%@16 AND be much faster than 
 import math, time, random, torch, torch.nn as nn, torch.nn.functional as F
 DEV="cuda" if torch.cuda.is_available() else "cpu"
 
+class GroupFeatNorm(nn.Module):
+    """Function-preserving replacement for the per-feature LayerNorm when feat grows under stable=True: the OLD feat
+    dims keep the ORIGINAL LayerNorm (byte-identical old behavior) and the NEW dims get a separate LayerNorm whose
+    bias is zeroed, so a zero-valued new KEY feature -> 0 out -> zero attention contribution. (RESULTS #50)"""
+    def __init__(self, old_norm, old_dim, new_dim):
+        super().__init__(); self.old=old_norm; self.split=old_dim; self.new=nn.LayerNorm(new_dim); nn.init.zeros_(self.new.bias)
+    def forward(self, x):
+        return torch.cat([self.old(x[..., :self.split]), self.new(x[..., self.split:])], -1)
+
 class VChunkRecall(nn.Module):
     def __init__(self, d, heads=4, feat=8, chunk=128, stable=False):
         super().__init__(); self.H=heads; self.fe=feat; self.dv=d//heads; self.C=chunk; self.stable=stable
@@ -42,6 +51,24 @@ class VChunkRecall(nn.Module):
         out=(intra+inter)/(din+dex).clamp_min(1e-4).unsqueeze(-1)  # [B,H,nc,C,dv]
         out=out.permute(0,2,3,1,4).reshape(B,Tp,d)[:,:T]
         return self.o(out)
+    def grow_feat(self, new_feat):
+        """STATE-axis function-preserving growth: widen the Taylor feature dim fe (= the recall-capacity dial,
+        RESULTS #49/#50). New KEY rows zero-init -> exactly 0 attention contribution at t=0 (output identical);
+        new QUERY rows small-random -> break symmetry so the new key dims receive gradient (q-zero+k-zero is a dead
+        saddle). v/o untouched (independent of fe). stable=True handled via GroupFeatNorm (old dims keep exact norm)."""
+        assert new_feat>self.fe; H,fe=self.H,self.fe; din=self.q.in_features
+        dev=self.q.weight.device; dt=self.q.weight.dtype
+        def expand(lin, rand_new):
+            ow=lin.weight.data.view(H,fe,din); ob=lin.bias.data.view(H,fe)
+            nl=nn.Linear(din,H*new_feat).to(dev,dt); nw=nl.weight.data.view(H,new_feat,din); nb=nl.bias.data.view(H,new_feat)
+            nw.zero_(); nb.zero_(); nw[:,:fe,:]=ow; nb[:,:fe]=ob
+            if rand_new: nw[:,fe:,:].normal_(0,0.02)
+            return nl
+        self.k=expand(self.k, False); self.q=expand(self.q, True)
+        if self.stable:
+            self.qn=GroupFeatNorm(self.qn, fe, new_feat-fe).to(dev,dt)
+            self.kn=GroupFeatNorm(self.kn, fe, new_feat-fe).to(dev,dt)
+        self.fe=new_feat
 
 # ---- test harness ----
 class Blk(nn.Module):
