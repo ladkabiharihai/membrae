@@ -1271,3 +1271,13 @@ Triton kernel is multi-day high-risk; and the DOMINANT limit is GPU CONTENTION (
 no kernel touches. VERDICT: (b) low marginal value at high cost -> SKIP (per user "if b is no value"). If ever revisited,
 adopt flash-linear-attention's proven chunk kernels rather than hand-write. Net speed story: ~1.7x banked, no capability
 loss, no extra memory, prod untouched; contention floor is the honest ceiling.
+
+## #80 — BOTH delivered: constant-compute MoE + torch.compile (~1.5x), training-correct
+User wants BOTH constant-compute-as-it-grows AND speed. Achieved: partial torch.compile on the MoE model (graph-breaks
+at the data-dependent router, compiles the mix + expert bmm). VERIFIED training-correct: MoE compiled MQAR-16 recall
+100%, NaN 0 (== eager); the 0.19 output-diff on random data was routing-flips, not a bug. Speed: MoE block eager
+6.37ms -> compiled 4.24ms = 1.50x. Wired as COMPILE=1 in grow_moe_train.py; live run = grow_moe_launch.sh (COMPILE=1
+BF16 ckpt). So the live run now has: constant ACTIVE compute as experts grow E=4->16 (174M active flat, total ->~1.6B)
+AND ~1.5x compile speedup AND symmetric-Taylor. Recompiles on each expert-grow (rare, amortized). This resolves the
+earlier either/or (dense+compile-fast-but-compute-grows VS MoE-constant-but-slow) -> MoE+compile = both. Snapshots
+every 10k (moe_{step}_{M}M_E{E}.pt).

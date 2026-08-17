@@ -59,6 +59,8 @@ if __name__=="__main__":
         while m.blocks[0].moe.E<Es: m.grow_experts()
         m.load_state_dict(torch.load(latest,map_location=DEV)); print(f"RESUMED {latest} E={Es} step{start}",flush=True)
     opt=torch.optim.AdamW(m.parameters(),lr=3e-4,betas=(0.9,0.95),weight_decay=0.1)
+    if os.environ.get("COMPILE","0")=="1":                        # #79: partial compile (graph-breaks at the router) -> ~1.5x AND keeps MoE constant-compute; training-correct (recall 100%)
+        m=torch.compile(m); print("[torch.compile ON] ~1.5x, MoE routing stays eager (recompiles on expert-grow)",flush=True)
     tt,ac=nact(m); print(f"GROW-MoE: {tt/1e6:.0f}M total / {ac/1e6:.0f}M active, {L}L E={m.blocks[0].moe.E}->{EMAX}, bf16+ckpt, ctx{CTX}",flush=True)
     if RSTARTS is not None: print(f"[recall-mix {RECALL_FRAC:.0%}]",flush=True)
     ema=None; t0=time.time(); base=start; WARM=(start+300) if start else 2000
