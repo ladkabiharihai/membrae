@@ -1288,3 +1288,12 @@ grow experts only on saturation. Reconfigured grow_moe_launch: D=1280 L=20 E0=1 
 E=1 363M total=363M active (dense start) -> E=2 625M -> E=4 1150M -> E=6 1674M, ACTIVE flat 363M throughout. Verified
 E=1 FastMoE builds+grows(1->2)+trains. Cleaner constant-compute-growth story: differentiate into specialists when
 saturated, no early dead weight. Live run switched to this. Active 363M (vs old 174M) = more capable base held constant.
+
+## #82 — grow-MoE tested on real language + faculties @180k (1.5B tok): undertrained, faculties architectural-intact
+faculty_eval.py adapted to load MoELM. moe_180000_625M_E2 (E=2, 363M active): window2 ppl 31.6 (vs dense converged
+~10-15). Full 620-Q battery uniformly poor: SQuAD 5%, multi-hop 7.5%, needle 0/0/0/0, reasoning/knowledge all ~chance
+(12-30%), GSM8K/arith/coding 0%, long-gen 94% repeat (degenerate). = a BARELY-trained LM at ~1.5B tokens. The 4
+intrinsic faculties are ARCHITECTURAL (VChunkRecall mix, identical in MoE) and mechanism-verified: recall 100% MQAR
+with MoE (#74), all 4 in unified model (#68); they have NOT manifested on real language because the model is far too
+early. Same trajectory as dense (216M: 5% SQuAD early -> 33% only after ~4B tok + retrieval-SFT). Needs billions more
+tokens + likely a retrieval-SFT pass before real-language recall emerges. Honest: substrate proven, language not yet trained in.

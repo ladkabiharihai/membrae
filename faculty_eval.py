@@ -18,13 +18,21 @@ DEV="cuda"; random.seed(1234); torch.manual_seed(0)
 tok=Tokenizer.from_file("data/bpe.json"); CTX=2048
 import glob,re
 SNAP=os.environ.get("SNAP") or sorted(glob.glob("/mnt/kv_cache/pragnosia_data/snaps/scale_*.pt"),key=lambda p:int(re.search(r'scale_(\d+)_',p).group(1)))[-1]
-L0=int(re.search(r'_(\d+)L',SNAP).group(1))
-_fm=re.search(r'_f(\d+)\.pt',SNAP); FEAT0=int(_fm.group(1)) if _fm else 8   # feat from filename (old snaps=8)
-m=S.BrainLM(d=1024,L=L0).to(DEV).eval()
-_f=8                                                       # replay feat-grows to rebuild GroupFeatNorm before load
-while _f<FEAT0: _f=min(_f+2,FEAT0); m.grow_feat(_f)
-m.load_state_dict(torch.load(SNAP,map_location=DEV))
-print(f"=== FACULTY EVAL on {os.path.basename(SNAP)} ({sum(p.numel() for p in m.parameters())/1e6:.0f}M, {L0}L feat{FEAT0}) ===",flush=True)
+if "moe_" in os.path.basename(SNAP):                        # MoE snapshot (grow_moe_train MoELM)
+    os.environ.setdefault("D","1280"); os.environ.setdefault("L","20"); os.environ["COMPILE"]="0"; os.environ["RECALL_FRAC"]="0"
+    import grow_moe_train as GM
+    E=int(re.search(r'_E(\d+)\.pt',SNAP).group(1)); m=GM.MoELM(E).to(DEV).eval()
+    sd=torch.load(SNAP,map_location=DEV); sd={k.replace("_orig_mod.",""):v for k,v in sd.items()}
+    m.load_state_dict(sd)
+    print(f"=== FACULTY EVAL on {os.path.basename(SNAP)} (MoE {GM.d}d {len(m.blocks)}L E={E}, {sum(p.numel() for p in m.parameters())/1e6:.0f}M) ===",flush=True)
+else:
+    L0=int(re.search(r'_(\d+)L',SNAP).group(1))
+    _fm=re.search(r'_f(\d+)\.pt',SNAP); FEAT0=int(_fm.group(1)) if _fm else 8   # feat from filename (old snaps=8)
+    m=S.BrainLM(d=1024,L=L0).to(DEV).eval()
+    _f=8                                                       # replay feat-grows to rebuild GroupFeatNorm before load
+    while _f<FEAT0: _f=min(_f+2,FEAT0); m.grow_feat(_f)
+    m.load_state_dict(torch.load(SNAP,map_location=DEV))
+    print(f"=== FACULTY EVAL on {os.path.basename(SNAP)} ({sum(p.numel() for p in m.parameters())/1e6:.0f}M, {L0}L feat{FEAT0}) ===",flush=True)
 RESULTS={}
 
 @torch.no_grad()
