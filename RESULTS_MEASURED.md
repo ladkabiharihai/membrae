@@ -1306,3 +1306,13 @@ the recent half = genuinely SATURATED. Redesign (user): start lean 136M dense (E
 saturation FIRST (GROW_EVERY=40000 -> first grow >=~60k steps), grow experts one-by-one to E=13 (~1.22B total, 136M
 active FLAT), then STOP growing + converge (EMAX cap). Leaner active (136M vs prev 363M) = faster. Live run switched.
 Snapshot save/resume strip _orig_mod (compile) fix retained.
+
+## #84 — Growth trigger made more INTRINSIC + Chinchilla-20 floor (user)
+User: (1) the router-based intrinsic signal only works AFTER E>=2 (at E=1 the router is trivial -- one expert, always
+"full"); (2) require >=20 tok/param (Chinchilla) trained before ANY grow. IMPLEMENTED: FastMoE.forward now exposes
+route_sat = mean top-1 confidence x load-balance (the model's OWN routing-saturation signal, in (0,1)). maybe_grow:
+CHINCHILLA-20 FLOOR first (current size must see 20*active_params tokens; 136M active -> 2.72B tok = 332k steps/stage
+= ~19h at 40K tok/s), THEN E=1 uses LOSS saturation (router trivial), E>=2 uses ROUTER-SAT plateau-high (intrinsic).
+Allocation stays irreducibly external (documented). Honest: signal is now the model's own (router), threshold is
+self-relative-ish but still a design choice; fully-learned grow-decision is open. Live run (136M E=1->13, compile, bf16)
+restarted with this; 40K tok/s (leaner active). Verified route_sat read survives compile; floor blocks premature grow.

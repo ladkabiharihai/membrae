@@ -14,10 +14,16 @@ class FastMoE(nn.Module):
         s.w1=nn.Parameter(torch.empty(E,d,4*d)); s.w2=nn.Parameter(torch.empty(E,4*d,d))
         s.b1=nn.Parameter(torch.zeros(E,4*d)); s.b2=nn.Parameter(torch.zeros(E,d))
         for e in range(E): nn.init.kaiming_uniform_(s.w1[e],a=5**0.5); nn.init.kaiming_uniform_(s.w2[e],a=5**0.5)
+        s.register_buffer("route_sat",torch.ones(1),persistent=False)   # model's own routing-saturation signal (set in forward)
     def forward(s,x):
         B,T,d=x.shape; N=B*T; xf=x.reshape(N,d)
         lg=s.router(xf); pr=lg.softmax(-1); top=lg.argmax(-1); gate=pr.gather(1,top[:,None])   # [N,1]
         C=max(1,int(s.cap*N/s.E)); oneh=F.one_hot(top,s.E)                                       # [N,E]
+        # INTRINSIC saturation signal (the model's OWN routing): mean top-1 confidence x load-balance. High+stable =
+        # experts specialized and evenly full = the model itself signalling "capacity saturated, need another expert".
+        with torch.no_grad():
+            load=oneh.float().mean(0); bal=1.0-(load*s.E-1.0).abs().mean()                       # 1=perfectly balanced
+            s.route_sat=(gate.mean()*bal).detach()                                               # in (0,1); read by the grower
         posin=(oneh.cumsum(0)-1).gather(1,top[:,None]).squeeze(1)                                # rank within expert
         keep=posin<C
         buf=torch.zeros(s.E,C,d,device=x.device,dtype=x.dtype)

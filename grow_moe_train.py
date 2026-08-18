@@ -34,16 +34,25 @@ class MoELM(nn.Module):
         for b in s.blocks: h=checkpoint(b,h,use_reentrant=False) if s.training else b(h)
         return s.head(s.lnf(h))
     def grow_experts(s): [b.moe.grow() for b in s.blocks]; return s.blocks[0].moe.E
-    def maybe_grow(s,lema,step):
-        # SATURATION-then-grow (fixed): the entropy trigger fired on NOISE (grew while ppl 31.6, undertrained). Now
-        # watch the LOSS EMA (real learning signal) over a LONG window (~60k steps), using BEST-loss in each half to
-        # reject bs=4 noise. Grow ONLY when best-loss improved <0.3% over the recent half = genuinely saturated at this size.
-        s.hist.append(lema); W=40                              # 40 checks x 1500 = ~60k-step saturation window
-        if step-s.last_grow<GROW_EVERY or len(s.hist)<W: return None
-        prev=min(s.hist[-W:-W//2]); recent=min(s.hist[-W//2:]) # best loss earlier-half vs recent-half
-        rel=(prev-recent)/max(1e-6,prev); free=torch.cuda.mem_get_info()[0]/2**30
-        if rel<0.003 and free>VRAM_STOP and s.blocks[0].moe.E<EMAX:
-            E=s.grow_experts(); s.last_grow=step; s.hist=[]; return E
+    def maybe_grow(s,lema,rcema,step):
+        # CHINCHILLA-20 FLOOR (user): the current size must see >=20 tok/param before ANY grow -> a properly trained
+        # stage, not a premature grow. THEN the signal: E=1 has a trivial router (one expert), so the FIRST grow uses
+        # LOSS saturation; E>=2 uses the model's OWN ROUTER saturation (route_sat: confidence x balance) -- the intrinsic
+        # signal only becomes meaningful once it has grown a bit. Allocation stays external (irreducible).
+        E=s.blocks[0].moe.E; _,active=nact(s)
+        if (step-s.last_grow)*BS*CTX < 20*active or step-s.last_grow<GROW_EVERY: return None   # 20-Chinchilla floor
+        W=40
+        if E==1:                                              # LOSS saturation (router trivial at E=1)
+            s.hist.append(lema)
+            if len(s.hist)<W: return None
+            prev=min(s.hist[-W:-W//2]); recent=min(s.hist[-W//2:]); sat=(prev-recent)/max(1e-6,prev)<0.003
+        else:                                                 # INTRINSIC: model's own router saturation plateaued high
+            s.hist.append(rcema)
+            if len(s.hist)<W: return None
+            prev=max(s.hist[-W:-W//2]); recent=max(s.hist[-W//2:]); sat=(recent-prev)/max(1e-6,prev)<0.003 and recent>0.5
+        free=torch.cuda.mem_get_info()[0]/2**30
+        if sat and free>VRAM_STOP and E<EMAX:
+            n=s.grow_experts(); s.last_grow=step; s.hist=[]; return n
         return None
 def nact(m):
     tot=sum(p.numel() for p in m.parameters()); oneexp=(m.blocks[0].moe.w1[0].numel()+m.blocks[0].moe.w2[0].numel()+m.blocks[0].moe.b1[0].numel()+m.blocks[0].moe.b2[0].numel())
@@ -68,7 +77,8 @@ if __name__=="__main__":
         m=torch.compile(m); print("[torch.compile ON] ~1.5x, MoE routing stays eager (recompiles on expert-grow)",flush=True)
     tt,ac=nact(m); print(f"GROW-MoE: {tt/1e6:.0f}M total / {ac/1e6:.0f}M active, {L}L E={m.blocks[0].moe.E}->{EMAX}, bf16+ckpt, ctx{CTX}",flush=True)
     if RSTARTS is not None: print(f"[recall-mix {RECALL_FRAC:.0%}]",flush=True)
-    ema=None; lema=None; t0=time.time(); base=start; WARM=(start+300) if start else 2000   # lema = LOSS EMA -> saturation trigger
+    ema=None; lema=None; rcema=None; t0=time.time(); base=start; WARM=(start+300) if start else 2000   # lema=LOSS EMA, rcema=ROUTER-SAT EMA
+    _mm=getattr(m,"_orig_mod",m)                              # underlying model (compile-safe) for reading router stats
     for it in range(start+1,STEPS+1):
         for g in opt.param_groups: g["lr"]=3e-4*min(1.0,it/WARM)
         x,y=batch(BS)
@@ -84,8 +94,10 @@ if __name__=="__main__":
         if it%500==0:
             tt,ac=nact(m); print(f"  step {it} loss={loss.item():.3f} ppl={np.exp(min(20,loss.item())):.1f} uncert={ema:.3f} E={m.blocks[0].moe.E} {tt/1e6:.0f}M/{ac/1e6:.0f}Mact {BS*CTX*(it-base)/(time.time()-t0)/1e3:.0f}Kt/s free={torch.cuda.mem_get_info()[0]/2**30:.0f}G",flush=True)
         if it%1500==0:
-            g=m.maybe_grow(lema,it)                            # LOSS-based saturation (fixed: was entropy, fired on noise)
-            if g: opt=torch.optim.AdamW(m.parameters(),lr=3e-4,betas=(0.9,0.95),weight_decay=0.1); base=it; t0=time.time(); print(f"  >>> GREW EXPERTS -> E={g} @loss_ema={lema:.3f} (saturated at prev size)",flush=True)
+            rc=sum(b.moe.route_sat.item() for b in _mm.blocks)/len(_mm.blocks)   # model's OWN routing-saturation signal
+            rcema=rc if rcema is None else 0.9*rcema+0.1*rc
+            g=m.maybe_grow(lema,rcema,it)                       # Chinchilla-floor + loss(E=1)/router-sat(E>=2) saturation
+            if g: opt=torch.optim.AdamW(m.parameters(),lr=3e-4,betas=(0.9,0.95),weight_decay=0.1); base=it; t0=time.time(); print(f"  >>> GREW EXPERTS -> E={g} @loss={lema:.3f} route_sat={rcema:.3f} (saturated; >=20 tok/param trained)",flush=True)
         if it%10000==0:
             sd={k.replace("_orig_mod.",""):v for k,v in m.state_dict().items()}   # strip torch.compile prefix so RESUME (uncompiled build) can load
             tt,ac=nact(m); torch.save(sd,f"{SNAP}/moe_{it}_{tt/1e6:.0f}M_E{m.blocks[0].moe.E}.pt"); print(f"  [SNAP {it}] {tt/1e6:.0f}M/{ac/1e6:.0f}Mact E={m.blocks[0].moe.E}",flush=True)
