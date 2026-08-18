@@ -34,10 +34,14 @@ class MoELM(nn.Module):
         for b in s.blocks: h=checkpoint(b,h,use_reentrant=False) if s.training else b(h)
         return s.head(s.lnf(h))
     def grow_experts(s): [b.moe.grow() for b in s.blocks]; return s.blocks[0].moe.E
-    def maybe_grow(s,ema,step):
-        s.hist.append(ema)
-        if len(s.hist)<20 or step-s.last_grow<GROW_EVERY: return None
-        rel=(s.hist[-20]-ema)/max(1e-6,s.hist[-20]); free=torch.cuda.mem_get_info()[0]/2**30
+    def maybe_grow(s,lema,step):
+        # SATURATION-then-grow (fixed): the entropy trigger fired on NOISE (grew while ppl 31.6, undertrained). Now
+        # watch the LOSS EMA (real learning signal) over a LONG window (~60k steps), using BEST-loss in each half to
+        # reject bs=4 noise. Grow ONLY when best-loss improved <0.3% over the recent half = genuinely saturated at this size.
+        s.hist.append(lema); W=40                              # 40 checks x 1500 = ~60k-step saturation window
+        if step-s.last_grow<GROW_EVERY or len(s.hist)<W: return None
+        prev=min(s.hist[-W:-W//2]); recent=min(s.hist[-W//2:]) # best loss earlier-half vs recent-half
+        rel=(prev-recent)/max(1e-6,prev); free=torch.cuda.mem_get_info()[0]/2**30
         if rel<0.003 and free>VRAM_STOP and s.blocks[0].moe.E<EMAX:
             E=s.grow_experts(); s.last_grow=step; s.hist=[]; return E
         return None
@@ -64,7 +68,7 @@ if __name__=="__main__":
         m=torch.compile(m); print("[torch.compile ON] ~1.5x, MoE routing stays eager (recompiles on expert-grow)",flush=True)
     tt,ac=nact(m); print(f"GROW-MoE: {tt/1e6:.0f}M total / {ac/1e6:.0f}M active, {L}L E={m.blocks[0].moe.E}->{EMAX}, bf16+ckpt, ctx{CTX}",flush=True)
     if RSTARTS is not None: print(f"[recall-mix {RECALL_FRAC:.0%}]",flush=True)
-    ema=None; t0=time.time(); base=start; WARM=(start+300) if start else 2000
+    ema=None; lema=None; t0=time.time(); base=start; WARM=(start+300) if start else 2000   # lema = LOSS EMA -> saturation trigger
     for it in range(start+1,STEPS+1):
         for g in opt.param_groups: g["lr"]=3e-4*min(1.0,it/WARM)
         x,y=batch(BS)
@@ -76,11 +80,12 @@ if __name__=="__main__":
             if it%200==0: print(f"  [warmup {it}/{WARM}] loss={loss.item():.3f}",flush=True)
             continue
         ema=ent if ema is None else 0.995*ema+0.005*ent
+        lema=loss.item() if lema is None else 0.99*lema+0.01*loss.item()   # smoothed LOSS -> saturation-then-grow (not entropy noise)
         if it%500==0:
             tt,ac=nact(m); print(f"  step {it} loss={loss.item():.3f} ppl={np.exp(min(20,loss.item())):.1f} uncert={ema:.3f} E={m.blocks[0].moe.E} {tt/1e6:.0f}M/{ac/1e6:.0f}Mact {BS*CTX*(it-base)/(time.time()-t0)/1e3:.0f}Kt/s free={torch.cuda.mem_get_info()[0]/2**30:.0f}G",flush=True)
         if it%1500==0:
-            g=m.maybe_grow(ema,it)
-            if g: opt=torch.optim.AdamW(m.parameters(),lr=3e-4,betas=(0.9,0.95),weight_decay=0.1); base=it; t0=time.time(); print(f"  >>> GREW EXPERTS -> E={g} (constant active-compute)",flush=True)
+            g=m.maybe_grow(lema,it)                            # LOSS-based saturation (fixed: was entropy, fired on noise)
+            if g: opt=torch.optim.AdamW(m.parameters(),lr=3e-4,betas=(0.9,0.95),weight_decay=0.1); base=it; t0=time.time(); print(f"  >>> GREW EXPERTS -> E={g} @loss_ema={lema:.3f} (saturated at prev size)",flush=True)
         if it%10000==0:
             sd={k.replace("_orig_mod.",""):v for k,v in m.state_dict().items()}   # strip torch.compile prefix so RESUME (uncompiled build) can load
             tt,ac=nact(m); torch.save(sd,f"{SNAP}/moe_{it}_{tt/1e6:.0f}M_E{m.blocks[0].moe.E}.pt"); print(f"  [SNAP {it}] {tt/1e6:.0f}M/{ac/1e6:.0f}Mact E={m.blocks[0].moe.E}",flush=True)

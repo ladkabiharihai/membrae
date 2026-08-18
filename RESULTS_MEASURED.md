@@ -1297,3 +1297,12 @@ intrinsic faculties are ARCHITECTURAL (VChunkRecall mix, identical in MoE) and m
 with MoE (#74), all 4 in unified model (#68); they have NOT manifested on real language because the model is far too
 early. Same trajectory as dense (216M: 5% SQuAD early -> 33% only after ~4B tok + retrieval-SFT). Needs billions more
 tokens + likely a retrieval-SFT pass before real-language recall emerges. Honest: substrate proven, language not yet trained in.
+
+## #83 — MoE growth v3 (user): 136M base, grow-to-13 experts, FIXED saturation trigger (was firing on noise)
+User caught that the intrinsic trigger fired too EARLY (grew E->2 @150k while ppl 31.6, undertrained) -> it watched
+ENTROPY EMA over 30k steps, which plateaus on training noise, not real convergence. FIX: watch the LOSS EMA over a
+LONG ~60k-step window, using BEST-loss in each half (rejects bs=4 noise), grow only when best-loss improved <0.3% over
+the recent half = genuinely SATURATED. Redesign (user): start lean 136M dense (E=1, d=896 L=14), train base to
+saturation FIRST (GROW_EVERY=40000 -> first grow >=~60k steps), grow experts one-by-one to E=13 (~1.22B total, 136M
+active FLAT), then STOP growing + converge (EMAX cap). Leaner active (136M vs prev 363M) = faster. Live run switched.
+Snapshot save/resume strip _orig_mod (compile) fix retained.
